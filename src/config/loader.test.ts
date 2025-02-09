@@ -1,5 +1,5 @@
-import { loadConfig } from '../../src/config/loader';
-import { ConfigurationError } from '../../src/config/types';
+import { loadConfig } from './loader';
+import { ConfigurationError } from './types';
 import fs from 'fs/promises';
 import path from 'path';
 

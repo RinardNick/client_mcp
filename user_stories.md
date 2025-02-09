@@ -45,16 +45,16 @@ The goal is to incrementally build the MCP client. We start with a minimal, work
 
 ---
 
-### User Story 1.3: Receive a Chat Message from the Host
+### ✓ ~~User Story 1.3: Receive a Chat Message from the Host~~
 
 **Description**:
-As a host, I want to send a chat message to the client via an API endpoint so that I can interact with the LLM.
+~~As a host, I want to send a chat message to the client via an API endpoint so that I can interact with the LLM.~~
 
 **Acceptance Criteria**:
 
-- A RESTful API endpoint (e.g., `POST /chat/session/{sessionId}/message`) accepts a chat message.
-- The endpoint validates that the session exists and accepts a non-empty message payload.
-- On receipt, the client logs the incoming message and acknowledges receipt to the host.
+- ~~A RESTful API endpoint (e.g., `POST /chat/session/{sessionId}/message`) accepts a chat message.~~
+- ~~The endpoint validates that the session exists and accepts a non-empty message payload.~~
+- ~~On receipt, the client logs the incoming message and acknowledges receipt to the host.~~
 
 ---
 
@@ -72,17 +72,17 @@ As a host, I want to send a chat message to the client via an API endpoint so th
 
 ---
 
-### User Story 1.5: Stream LLM Response Back to the Host
+### ✓ ~~User Story 1.5: Stream LLM Response Back to the Host~~
 
 **Description**:
-As a host, I want to receive the LLM response in a streaming format so that I can see the conversation progress in real time.
+~~As a host, I want to receive the LLM response in a streaming format so that I can see the conversation progress in real time.~~
 
 **Acceptance Criteria**:
 
-- The API endpoint streams the LLM's response (using Server-Sent Events or HTTP chunked responses).
-- The stream delivers the response message as soon as it is received from the LLM.
-- The data flow clearly shows: host message → client → LLM → client → host.
-- Logs and any error messages are included in the stream in a distinct format.
+- ~~The API endpoint streams the LLM's response (using Server-Sent Events or HTTP chunked responses).~~
+- ~~The stream delivers the response message as soon as it is received from the LLM.~~
+- ~~The data flow clearly shows: host message → client → LLM → client → host.~~
+- ~~Logs and any error messages are included in the stream in a distinct format.~~
 
 ---
 
@@ -204,26 +204,27 @@ As an engineer, I want the client to enforce a maximum number of tool invocation
    - ✓ Support for optional fields
 
 2. LLM Integration
+
    - ✓ Session initialization with Anthropic SDK
    - ✓ Message history tracking
    - ✓ Error handling and logging
    - ✓ Basic conversation flow
 
+3. API Layer (User Story 1.3)
+
+   - ✓ Express.js server implementation
+   - ✓ Session and message endpoints
+   - ✓ Request validation and error handling
+
+4. Streaming Support (User Story 1.5)
+   - ✓ SSE implementation for streaming responses
+   - ✓ Real-time message delivery
+   - ✓ Error handling in streams
+   - ✓ Message history tracking
+
 ### Next Steps
 
-1. API Layer (User Story 1.3)
-
-   - Create Express.js server
-   - Implement session and message endpoints
-   - Add request validation
-
-2. Streaming Support (User Story 1.5)
-
-   - Implement SSE for streaming responses
-   - Add error streaming
-   - Test streaming functionality
-
-3. Server Integration (Epic 2)
+1. Server Integration (Epic 2)
    - Extend configuration
    - Implement server management
    - Add tool invocation support

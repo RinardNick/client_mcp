@@ -119,6 +119,64 @@ export class SessionManager {
     }
   }
 
+  async *sendMessageStream(
+    sessionId: string,
+    message: string
+  ): AsyncGenerator<{ type: string; content?: string; error?: string }> {
+    try {
+      const session = this.getSession(sessionId);
+
+      // Add user message to history
+      session.messages.push({
+        role: 'user',
+        content: message,
+      });
+
+      // Send message to Anthropic with streaming
+      const stream = await this.anthropic.messages.create({
+        model: session.config.model,
+        max_tokens: 1024,
+        messages: session.messages.map(msg => ({
+          role: msg.role === 'system' ? 'user' : msg.role,
+          content: msg.content,
+        })),
+        stream: true,
+      });
+
+      let accumulatedContent = '';
+
+      for await (const chunk of stream) {
+        if (
+          chunk.type === 'content_block_delta' &&
+          chunk.delta?.type === 'text_delta'
+        ) {
+          accumulatedContent += chunk.delta.text;
+          yield { type: 'content', content: chunk.delta.text };
+        }
+      }
+
+      // Add assistant message to history
+      session.messages.push({
+        role: 'assistant',
+        content: accumulatedContent,
+      });
+
+      // Update session activity
+      this.updateSessionActivity(sessionId);
+
+      yield { type: 'done' };
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      yield {
+        type: 'error',
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Unknown error during message sending',
+      };
+    }
+  }
+
   getSession(sessionId: string): ChatSession {
     const session = this.sessions.get(sessionId);
     if (!session) {

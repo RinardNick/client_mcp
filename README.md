@@ -5,105 +5,241 @@ A TypeScript implementation of a Model Context Protocol (MCP) client that enable
 ## Features
 
 - Load and validate configuration from JSON files
-- Initialize LLM chat sessions using the MCP TypeScript SDK
-- Launch and manage MCP servers for tool invocation
+- Initialize LLM chat sessions using the Anthropic SDK
 - Stream conversation responses back to the host
 - Handle errors and provide detailed logging
+- Express middleware for easy integration
 
-## Getting Started
-
-### Prerequisites
-
-- Node.js (v16 or higher)
-- npm (v7 or higher)
-
-### Installation
-
-1. Clone the repository:
+## Installation
 
 ```bash
-git clone [repository-url]
-cd ts-mcp-client
+npm install @rinardnick/ts-mcp-client
 ```
 
-2. Install dependencies:
+## Usage in Next.js
 
-```bash
-npm install
+### 1. API Route Setup
+
+Create a new API route in your Next.js project (e.g., `pages/api/chat/[[...params]].ts`):
+
+```typescript
+import { createChatRouter } from '@rinardnick/ts-mcp-client';
+import express from 'express';
+import { createServer } from 'http';
+
+const app = express();
+const chatRouter = createChatRouter();
+app.use('/api/chat', chatRouter);
+
+export default function handler(req, res) {
+  app(req, res);
+}
+
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
 ```
 
-3. Create a configuration file (`config.json`):
+### 2. Frontend Implementation
 
-```json
-{
-  "llm": {
-    "type": "claude",
-    "api_key": "YOUR_API_KEY_HERE",
-    "system_prompt": "You are a helpful assistant.",
-    "model": "claude-3-sonnet-20240229"
-  }
+Create a chat component (e.g., `components/Chat.tsx`):
+
+```typescript
+import { useState, useEffect } from 'react';
+import { LLMConfig } from '@rinardnick/ts-mcp-client';
+
+export function Chat() {
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<
+    Array<{ role: string; content: string }>
+  >([]);
+  const [input, setInput] = useState('');
+
+  // Initialize chat session
+  useEffect(() => {
+    const config: LLMConfig = {
+      type: 'claude',
+      api_key: process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY!,
+      system_prompt: 'You are a helpful assistant.',
+      model: 'claude-3-5-sonnet-20241022',
+    };
+
+    fetch('/api/chat/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config }),
+    })
+      .then(res => res.json())
+      .then(({ sessionId }) => setSessionId(sessionId));
+  }, []);
+
+  // Send message and handle streaming response
+  const sendMessage = async (message: string) => {
+    if (!sessionId) return;
+
+    // Add user message to chat
+    setMessages(prev => [...prev, { role: 'user', content: message }]);
+    setInput('');
+
+    // Set up SSE connection
+    const eventSource = new EventSource(
+      `/api/chat/session/${sessionId}/stream?message=${encodeURIComponent(
+        message
+      )}`
+    );
+    let assistantMessage = '';
+
+    eventSource.onmessage = event => {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'content') {
+        assistantMessage += data.content;
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastMessage = newMessages[newMessages.length - 1];
+
+          if (lastMessage?.role === 'assistant') {
+            lastMessage.content = assistantMessage;
+          } else {
+            newMessages.push({ role: 'assistant', content: assistantMessage });
+          }
+
+          return newMessages;
+        });
+      } else if (data.type === 'done') {
+        eventSource.close();
+      } else if (data.type === 'error') {
+        console.error('Error:', data.error);
+        eventSource.close();
+      }
+    };
+
+    eventSource.onerror = () => {
+      eventSource.close();
+    };
+  };
+
+  return (
+    <div className="chat-container">
+      <div className="messages">
+        {messages.map((msg, i) => (
+          <div key={i} className={`message ${msg.role}`}>
+            {msg.content}
+          </div>
+        ))}
+      </div>
+      <div className="input-container">
+        <input
+          type="text"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyPress={e => e.key === 'Enter' && sendMessage(input)}
+          placeholder="Type your message..."
+        />
+        <button onClick={() => sendMessage(input)}>Send</button>
+      </div>
+    </div>
+  );
 }
 ```
 
-### Development
+### 3. Add Styling
 
-- Build the project:
+Add some basic styles (e.g., `styles/Chat.css`):
 
-```bash
-npm run build
-```
+```css
+.chat-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+}
 
-- Run tests:
+.messages {
+  height: 500px;
+  overflow-y: auto;
+  border: 1px solid #ccc;
+  padding: 10px;
+  margin-bottom: 20px;
+}
 
-```bash
-npm test
-```
+.message {
+  margin-bottom: 10px;
+  padding: 10px;
+  border-radius: 5px;
+}
 
-- Start the development server:
+.message.user {
+  background-color: #e3f2fd;
+  margin-left: 20%;
+}
 
-```bash
-npm run dev
+.message.assistant {
+  background-color: #f5f5f5;
+  margin-right: 20%;
+}
+
+.input-container {
+  display: flex;
+  gap: 10px;
+}
+
+input {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+}
+
+button {
+  padding: 10px 20px;
+  background-color: #0070f3;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #0051cc;
+}
 ```
 
 ## Configuration
 
-The client is configured using a JSON file with the following structure:
+The client requires a configuration object with the following structure:
 
 ```typescript
-interface Config {
-  llm: {
-    type: string;
-    api_key: string;
-    system_prompt: string;
-    model: string;
-  };
-  max_tool_calls?: number;
-  servers?: {
-    [name: string]: {
-      command: string;
-      args: string[];
-      env: Record<string, string>;
-    };
-  };
+interface LLMConfig {
+  type: string;
+  api_key: string;
+  system_prompt: string;
+  model: string;
 }
 ```
 
-## Testing
+## API Endpoints
 
-The project uses Jest for testing. Run the test suite with:
+The package provides the following endpoints through the Express router:
+
+- `POST /session` - Create a new chat session
+- `POST /session/:sessionId/message` - Send a message and receive a response
+- `POST /session/:sessionId/stream` - Send a message and receive a streaming response
+
+## Development
 
 ```bash
+# Install dependencies
+npm install
+
+# Run tests
 npm test
+
+# Build the package
+npm run build
 ```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
 
 ## License
 
-This project is licensed under the ISC License.
+ISC

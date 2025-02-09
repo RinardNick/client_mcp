@@ -56,7 +56,7 @@
     // "emitDeclarationOnly": true,                      /* Only output d.ts files and not JavaScript files. */
     "sourceMap": true,
     // "inlineSourceMap": true,                          /* Include sourcemap files inside the emitted JavaScript. */
-    "noEmit": true,
+    // "noEmit": true,
     // "outFile": "./",                                  /* Specify a file that bundles all outputs into one JavaScript file. If 'declaration' is true, also designates a file that bundles all .d.ts output. */
     "outDir": "./dist",
     // "removeComments": true,                           /* Disable emitting comments. */

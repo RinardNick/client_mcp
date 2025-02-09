@@ -3,6 +3,13 @@ export { ChatSession, ChatMessage, LLMError } from './llm/types';
 export { LLMConfig, ConfigurationError } from './config/types';
 export { loadConfig } from './config/loader';
 
+// Helper function to create a new chat session
+import { ChatSession } from './llm/types';
+export async function createSession(config: LLMConfig): Promise<ChatSession> {
+  const sessionManager = new SessionManager();
+  return sessionManager.initializeSession(config);
+}
+
 // Express middleware and router
 import express, { Request, Response, Router } from 'express';
 import { SessionManager } from './llm/session';

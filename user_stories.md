@@ -31,17 +31,17 @@ The goal is to incrementally build the MCP client. We start with a minimal, work
 
 ---
 
-### User Story 1.2: Initialize LLM Chat Session Using MCP SDK
+### ✓ ~~User Story 1.2: Initialize LLM Chat Session Using MCP SDK~~
 
 **Description**:
-As an engineer, I want to initialize an LLM chat session using the MCP TypeScript SDK based on the minimal configuration so that the client can start a conversation with the LLM.
+~~As an engineer, I want to initialize an LLM chat session using the Anthropic SDK based on the minimal configuration so that the client can start a conversation with the LLM.~~
 
 **Acceptance Criteria**:
 
-- The client initializes the LLM session using the MCP SDK with the provided LLM parameters.
-- The system prompt is built solely from the configuration's `system_prompt`.
-- Successful initialization returns a unique session identifier that can be referenced in later requests.
-- All initialization steps and outcomes are logged for debugging.
+- ~~The client initializes the LLM session using the Anthropic SDK with the provided LLM parameters.~~
+- ~~The system prompt is built solely from the configuration's `system_prompt`.~~
+- ~~Successful initialization returns a unique session identifier that can be referenced in later requests.~~
+- ~~All initialization steps and outcomes are logged for debugging.~~
 
 ---
 
@@ -58,17 +58,17 @@ As a host, I want to send a chat message to the client via an API endpoint so th
 
 ---
 
-### User Story 1.4: Forward Message to LLM and Retrieve a Response
+### ✓ ~~User Story 1.4: Forward Message to LLM and Retrieve a Response~~
 
 **Description**:
-As an engineer, I want the client to forward incoming chat messages to the LLM and retrieve the LLM's response so that the conversation can progress.
+~~As an engineer, I want the client to forward incoming chat messages to the LLM and retrieve the LLM's response so that the conversation can progress.~~
 
 **Acceptance Criteria**:
 
-- The client sends the user's message to the LLM using the MCP SDK.
-- The LLM processes the message and returns a response.
-- The response is logged and made available for streaming back to the host.
-- Any errors in the LLM interaction are captured and logged.
+- ~~The client sends the user's message to the LLM using the Anthropic SDK.~~
+- ~~The LLM processes the message and returns a response.~~
+- ~~The response is logged and made available for streaming back to the host.~~
+- ~~Any errors in the LLM interaction are captured and logged.~~
 
 ---
 
@@ -86,16 +86,16 @@ As a host, I want to receive the LLM response in a streaming format so that I ca
 
 ---
 
-### User Story 1.6: Basic Error Handling and Logging in the LLM Chat Flow
+### ✓ ~~User Story 1.6: Basic Error Handling and Logging in the LLM Chat Flow~~
 
 **Description**:
-As an engineer, I want clear error logging and error messages in the chat stream so that issues during LLM interaction can be diagnosed quickly.
+~~As an engineer, I want clear error logging and error messages in the chat stream so that issues during LLM interaction can be diagnosed quickly.~~
 
 **Acceptance Criteria**:
 
-- All errors encountered during configuration loading, session initialization, or message handling are logged with details.
-- When an error occurs, a distinct error message is streamed back to the host.
-- The client continues to operate for new messages if recoverable.
+- ~~All errors encountered during configuration loading, session initialization, or message handling are logged with details.~~
+- ~~When an error occurs, a distinct error message is streamed back to the host.~~
+- ~~The client continues to operate for new messages if recoverable.~~
 
 ---
 
@@ -193,23 +193,40 @@ As an engineer, I want the client to enforce a maximum number of tool invocation
 
 ---
 
-## Data Flow Summary
+## Implementation Notes
 
-- **LLM-Only Flow (Epic 1)**:
+### Completed Features
 
-  1. Host sends a chat message → Client receives it.
-  2. Client forwards message to LLM via the MCP SDK.
-  3. LLM processes and returns a response → Client logs and streams response back to Host.
-  4. Errors during any of these steps are logged and streamed to Host.
+1. Configuration Management
 
-- **Extended Flow with Server Integration (Epic 2)**:
-  1. Host sends a chat message → Client receives it.
-  2. Client forwards message to LLM.
-  3. LLM responds and (if needed) issues a tool invocation.
-  4. Client intercepts the tool call, sends a formatted request to the appropriate server.
-  5. Server returns tool output → Client integrates tool output into conversation.
-  6. Updated conversation is sent back to LLM and streamed to Host.
-  7. The process repeats until tool call limits are reached or no further tool calls are requested.
+   - ✓ JSON configuration loading and validation
+   - ✓ Error handling for invalid configurations
+   - ✓ Support for optional fields
+
+2. LLM Integration
+   - ✓ Session initialization with Anthropic SDK
+   - ✓ Message history tracking
+   - ✓ Error handling and logging
+   - ✓ Basic conversation flow
+
+### Next Steps
+
+1. API Layer (User Story 1.3)
+
+   - Create Express.js server
+   - Implement session and message endpoints
+   - Add request validation
+
+2. Streaming Support (User Story 1.5)
+
+   - Implement SSE for streaming responses
+   - Add error streaming
+   - Test streaming functionality
+
+3. Server Integration (Epic 2)
+   - Extend configuration
+   - Implement server management
+   - Add tool invocation support
 
 ---
 

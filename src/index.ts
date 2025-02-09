@@ -1,21 +1,52 @@
+import { SessionManager } from './llm/session';
+import { ChatSession, ChatMessage, LLMError } from './llm/types';
+import { LLMConfig, ConfigurationError } from './config/types';
+import express, { Request, Response, Router } from 'express';
+
 export { SessionManager } from './llm/session';
 export { ChatSession, ChatMessage, LLMError } from './llm/types';
 export { LLMConfig, ConfigurationError } from './config/types';
 export { loadConfig } from './config/loader';
 
-// Helper function to create a new chat session
-import { ChatSession } from './llm/types';
+// Helper functions
 export async function createSession(config: LLMConfig): Promise<ChatSession> {
   const sessionManager = new SessionManager();
   return sessionManager.initializeSession(config);
 }
 
-// Express middleware and router
-import express, { Request, Response, Router } from 'express';
-import { SessionManager } from './llm/session';
-import { LLMError } from './llm/types';
-import { LLMConfig } from './config/types';
+interface MessageCallbacks {
+  onContent: (content: string) => void;
+  onError: (error: Error) => void;
+  onDone: () => void;
+}
 
+export async function sendMessage(
+  sessionId: string,
+  message: string,
+  callbacks: MessageCallbacks
+): Promise<void> {
+  const sessionManager = new SessionManager();
+  try {
+    for await (const chunk of sessionManager.sendMessageStream(
+      sessionId,
+      message
+    )) {
+      if (chunk.type === 'content' && chunk.content) {
+        callbacks.onContent(chunk.content);
+      } else if (chunk.type === 'error' && chunk.error) {
+        callbacks.onError(new Error(chunk.error));
+      } else if (chunk.type === 'done') {
+        callbacks.onDone();
+      }
+    }
+  } catch (error) {
+    callbacks.onError(
+      error instanceof Error ? error : new Error('Unknown error')
+    );
+  }
+}
+
+// Express middleware and router
 interface CreateSessionRequest {
   config: LLMConfig;
 }

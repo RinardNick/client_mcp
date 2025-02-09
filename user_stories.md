@@ -6,14 +6,14 @@ The goal is to incrementally build the MCP client. We start with a minimal, work
 
 ## Epic 1: Basic LLM Chat Interaction
 
-### User Story 1.1: Minimal Configuration File for LLM Chat
+### ✓ ~~User Story 1.1: Minimal Configuration File for LLM Chat~~
 
 **Description**:  
-As an engineer, I want a minimal configuration file that contains only LLM information so that we can focus on establishing LLM chat interactions before adding server functionality.
+~~As an engineer, I want a minimal configuration file that contains only LLM information so that we can focus on establishing LLM chat interactions before adding server functionality.~~
 
 **Acceptance Criteria**:
 
-- A configuration file exists (e.g., `config.json`) with the following structure:
+- ~~A configuration file exists (e.g., `config.json`) with the following structure:~~
 
   ```json
   {
@@ -26,8 +26,8 @@ As an engineer, I want a minimal configuration file that contains only LLM infor
   }
   ```
 
-- The client reads and parses this file on startup.
-- If the file is missing or contains invalid JSON, an error is logged and a clear error message is returned.
+- ~~The client reads and parses this file on startup.~~
+- ~~If the file is missing or contains invalid JSON, an error is logged and a clear error message is returned.~~
 
 ---
 
@@ -39,7 +39,7 @@ As an engineer, I want to initialize an LLM chat session using the MCP TypeScrip
 **Acceptance Criteria**:
 
 - The client initializes the LLM session using the MCP SDK with the provided LLM parameters.
-- The system prompt is built solely from the configuration’s `system_prompt`.
+- The system prompt is built solely from the configuration's `system_prompt`.
 - Successful initialization returns a unique session identifier that can be referenced in later requests.
 - All initialization steps and outcomes are logged for debugging.
 
@@ -61,11 +61,11 @@ As a host, I want to send a chat message to the client via an API endpoint so th
 ### User Story 1.4: Forward Message to LLM and Retrieve a Response
 
 **Description**:
-As an engineer, I want the client to forward incoming chat messages to the LLM and retrieve the LLM’s response so that the conversation can progress.
+As an engineer, I want the client to forward incoming chat messages to the LLM and retrieve the LLM's response so that the conversation can progress.
 
 **Acceptance Criteria**:
 
-- The client sends the user’s message to the LLM using the MCP SDK.
+- The client sends the user's message to the LLM using the MCP SDK.
 - The LLM processes the message and returns a response.
 - The response is logged and made available for streaming back to the host.
 - Any errors in the LLM interaction are captured and logged.
@@ -79,7 +79,7 @@ As a host, I want to receive the LLM response in a streaming format so that I ca
 
 **Acceptance Criteria**:
 
-- The API endpoint streams the LLM’s response (using Server-Sent Events or HTTP chunked responses).
+- The API endpoint streams the LLM's response (using Server-Sent Events or HTTP chunked responses).
 - The stream delivers the response message as soon as it is received from the LLM.
 - The data flow clearly shows: host message → client → LLM → client → host.
 - Logs and any error messages are included in the stream in a distinct format.
@@ -151,20 +151,20 @@ As an engineer, I want the client to launch each MCP server defined in the confi
 ### User Story 2.3: Discover Server Capabilities
 
 **Description**:
-As an engineer, I want the client to query each launched server for its available tools and resources so that these details can be included in the LLM’s system prompt.
+As an engineer, I want the client to query each launched server for its available tools and resources so that these details can be included in the LLM's system prompt.
 
 **Acceptance Criteria**:
 
-- After launching, the client sends requests to each server’s `/tools/list` and `/resources/list` endpoints.
+- After launching, the client sends requests to each server's `/tools/list` and `/resources/list` endpoints.
 - The client stores and logs the retrieved capabilities.
-- These capabilities are made available for incorporation into the LLM chat’s initialization prompt in subsequent sessions.
+- These capabilities are made available for incorporation into the LLM chat's initialization prompt in subsequent sessions.
 
 ---
 
 ### User Story 2.4: Integrate Tool Invocation into LLM Chat Flow
 
 **Description**:
-As a host, I want the client to handle tool invocation requests from the LLM and incorporate the server’s response back into the conversation so that the LLM can leverage external tools.
+As a host, I want the client to handle tool invocation requests from the LLM and incorporate the server's response back into the conversation so that the LLM can leverage external tools.
 
 **Acceptance Criteria**:
 
@@ -172,7 +172,7 @@ As a host, I want the client to handle tool invocation requests from the LLM and
 - When a tool invocation is detected, the client:
   - Formats the tool request per the MCP protocol.
   - Sends the request to the corresponding server.
-  - Receives the tool’s output.
+  - Receives the tool's output.
 - The tool output is logged and injected into the ongoing LLM conversation context.
 - The updated conversation (LLM response + tool output) is streamed back to the host.
 
@@ -237,9 +237,5 @@ This approach ensures that we build a simple, working prototype for LLM interact
 
 ---
 
-These user stories focus on the smallest units of functionality and clearly describe the data flow between components. Let me know if you’d like to adjust or continue expanding on any particular area.
-```
-
-```
-
+These user stories focus on the smallest units of functionality and clearly describe the data flow between components. Let me know if you'd like to adjust or continue expanding on any particular area.
 ```

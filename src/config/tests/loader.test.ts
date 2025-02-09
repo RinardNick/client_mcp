@@ -1,7 +1,7 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import fs from 'fs/promises';
-import { loadConfig } from './loader';
-import { ConfigurationError } from './types';
+import { loadConfig } from '../loader';
+import { ConfigurationError } from '../types';
 
 vi.mock('fs/promises');
 

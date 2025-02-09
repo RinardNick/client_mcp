@@ -1,0 +1,98 @@
+import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { SessionManager } from './session';
+import { LLMError } from './types';
+import Anthropic from '@anthropic-ai/sdk';
+
+// Mock Anthropic SDK
+vi.mock('@anthropic-ai/sdk', () => {
+  return {
+    default: vi.fn().mockImplementation(() => ({
+      messages: {
+        create: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'Mock response' }],
+        }),
+      },
+    })),
+  };
+});
+
+describe('SessionManager', () => {
+  const validConfig = {
+    type: 'claude',
+    api_key: 'test-key',
+    system_prompt: 'You are a helpful assistant.',
+    model: 'claude-3-sonnet-20240229',
+  };
+
+  let sessionManager: SessionManager;
+
+  beforeEach(() => {
+    sessionManager = new SessionManager();
+    vi.clearAllMocks();
+  });
+
+  it('should initialize a new session with valid config', async () => {
+    const session = await sessionManager.initializeSession(validConfig);
+
+    expect(session).toBeDefined();
+    expect(session.id).toBeDefined();
+    expect(session.config).toEqual(validConfig);
+    expect(session.createdAt).toBeInstanceOf(Date);
+    expect(session.lastActivityAt).toBeInstanceOf(Date);
+    expect(session.messages).toHaveLength(2); // System prompt + assistant response
+    expect(session.messages[0]).toEqual({
+      role: 'system',
+      content: validConfig.system_prompt,
+    });
+    expect(session.messages[1]).toEqual({
+      role: 'assistant',
+      content: 'Mock response',
+    });
+  });
+
+  it('should retrieve an existing session', async () => {
+    const session = await sessionManager.initializeSession(validConfig);
+    const retrieved = sessionManager.getSession(session.id);
+    expect(retrieved).toEqual(session);
+  });
+
+  it('should throw error for non-existent session', () => {
+    expect(() => sessionManager.getSession('non-existent')).toThrow(LLMError);
+  });
+
+  it('should update session activity timestamp', async () => {
+    const session = await sessionManager.initializeSession(validConfig);
+    const originalTimestamp = session.lastActivityAt;
+
+    // Wait a small amount to ensure timestamp difference
+    await new Promise(resolve => setTimeout(resolve, 1));
+
+    sessionManager.updateSessionActivity(session.id);
+    const updated = sessionManager.getSession(session.id);
+
+    expect(updated.lastActivityAt.getTime()).toBeGreaterThan(
+      originalTimestamp.getTime()
+    );
+  });
+
+  it('should send a message and receive a response', async () => {
+    const session = await sessionManager.initializeSession(validConfig);
+    const response = await sessionManager.sendMessage(session.id, 'Hello');
+
+    expect(response).toEqual({
+      role: 'assistant',
+      content: 'Mock response',
+    });
+
+    const updatedSession = sessionManager.getSession(session.id);
+    expect(updatedSession.messages).toHaveLength(4); // System + assistant + user + assistant
+    expect(updatedSession.messages[2]).toEqual({
+      role: 'user',
+      content: 'Hello',
+    });
+    expect(updatedSession.messages[3]).toEqual({
+      role: 'assistant',
+      content: 'Mock response',
+    });
+  });
+});

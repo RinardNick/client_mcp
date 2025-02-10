@@ -168,13 +168,13 @@ As a host, I want the client to handle tool invocation requests from the LLM and
 
 **Acceptance Criteria**:
 
-- ✓ The LLM chat flow is updated to detect a tool invocation instruction in its responses.
-- When a tool invocation is detected, the client:
-  - Formats the tool request per the MCP protocol.
-  - Sends the request to the corresponding server.
-  - Receives the tool's output.
-- The tool output is logged and injected into the ongoing LLM conversation context.
-- The updated conversation (LLM response + tool output) is streamed back to the host.
+- ✓ The LLM chat flow is updated to detect tool invocation in its responses.
+- ✓ When a tool invocation is detected, the client:
+  - ✓ Formats the tool request per the MCP protocol.
+  - ✓ Sends the request to the corresponding server.
+  - ✓ Receives the tool output.
+- ✓ The tool output is logged and injected into the ongoing LLM conversation context.
+- ✓ The updated conversation (LLM response + tool output) is streamed back to the host.
 
 ---
 

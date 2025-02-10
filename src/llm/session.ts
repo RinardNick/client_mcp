@@ -106,9 +106,25 @@ export class SessionManager {
         throw new LLMError('Empty response from LLM');
       }
 
+      // Check for tool invocation
+      const toolMatch = content.match(/<tool>(.*?)<\/tool>/);
+      let hasToolCall = false;
+      let toolCall = undefined;
+
+      if (toolMatch) {
+        hasToolCall = true;
+        const [name, paramsStr] = toolMatch[1].trim().split(/\s+(.+)/);
+        toolCall = {
+          name,
+          parameters: JSON.parse(paramsStr),
+        };
+      }
+
       const assistantMessage: ChatMessage = {
         role: 'assistant',
-        content: content,
+        content,
+        hasToolCall,
+        toolCall,
       };
 
       // Add assistant message to history

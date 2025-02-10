@@ -5,14 +5,21 @@ import Anthropic from '@anthropic-ai/sdk';
 
 // Mock Anthropic SDK
 vi.mock('@anthropic-ai/sdk', () => {
+  const mockCreate = vi.fn();
   return {
     default: vi.fn().mockImplementation(() => ({
       messages: {
-        create: vi.fn().mockResolvedValue({
+        create: mockCreate.mockResolvedValue({
+          id: 'test-id',
+          model: 'claude-3-sonnet-20240229',
+          role: 'assistant',
           content: [{ type: 'text', text: 'Mock response' }],
+          stop_reason: null,
+          usage: { input_tokens: 10, output_tokens: 20 },
         }),
       },
     })),
+    mockCreate, // Export for test access
   };
 });
 
@@ -25,10 +32,23 @@ describe('SessionManager', () => {
   };
 
   let sessionManager: SessionManager;
+  let mockCreate: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     sessionManager = new SessionManager();
-    vi.clearAllMocks();
+    mockCreate = vi.fn();
+    vi.mocked(Anthropic).mockImplementation(() => ({
+      messages: {
+        create: mockCreate.mockResolvedValue({
+          id: 'test-id',
+          model: 'claude-3-sonnet-20240229',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Mock response' }],
+          stop_reason: null,
+          usage: { input_tokens: 10, output_tokens: 20 },
+        }),
+      },
+    }));
   });
 
   it('should initialize a new session with valid config', async () => {
@@ -82,6 +102,8 @@ describe('SessionManager', () => {
     expect(response).toEqual({
       role: 'assistant',
       content: 'Mock response',
+      hasToolCall: false,
+      toolCall: undefined,
     });
 
     const updatedSession = sessionManager.getSession(session.id);
@@ -93,6 +115,41 @@ describe('SessionManager', () => {
     expect(updatedSession.messages[3]).toEqual({
       role: 'assistant',
       content: 'Mock response',
+      hasToolCall: false,
+      toolCall: undefined,
+    });
+  });
+
+  describe('Tool Invocation', () => {
+    it('should detect tool invocation in LLM response', async () => {
+      const session = await sessionManager.initializeSession(validConfig);
+
+      // Mock Anthropic response with a tool invocation
+      mockCreate.mockResolvedValueOnce({
+        id: 'test-id',
+        model: 'claude-3-sonnet-20240229',
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: 'I will use the list-files tool to check the directory.\n<tool>list-files {"path": "/tmp"}</tool>',
+          },
+        ],
+        stop_reason: null,
+        usage: { input_tokens: 10, output_tokens: 20 },
+      });
+
+      const response = await sessionManager.sendMessage(
+        session.id,
+        'List files in /tmp'
+      );
+
+      expect(response.content).toContain('list-files');
+      expect(response.hasToolCall).toBe(true);
+      expect(response.toolCall).toEqual({
+        name: 'list-files',
+        parameters: { path: '/tmp' },
+      });
     });
   });
 });

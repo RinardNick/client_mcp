@@ -8,9 +8,16 @@ export interface ChatSession {
   messages: ChatMessage[];
 }
 
+export interface ToolCall {
+  name: string;
+  parameters: Record<string, unknown>;
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  hasToolCall?: boolean;
+  toolCall?: ToolCall;
 }
 
 export class LLMError extends Error {

@@ -137,27 +137,27 @@ _Note: This epic is only tackled once the basic LLM chat interaction is proven s
 ### ✓ ~~User Story 2.2: Launch MCP Servers Based on Configuration~~
 
 **Description**:
-As an engineer, I want the client to launch each MCP server defined in the configuration so that their tool capabilities are available.
+~~As an engineer, I want the client to launch each MCP server defined in the configuration so that their tool capabilities are available.~~
 
 **Acceptance Criteria**:
 
-- For each server in the configuration, a child process is spawned using the provided command, arguments, and environment variables.
-- The client performs a basic health check (e.g., a ping or status endpoint call) to confirm each server is running.
-- The system logs the launch status of each server.
-- If a server fails to launch, an error is logged and returned as part of the debugging stream.
+- ~~For each server in the configuration, a child process is spawned using the provided command, arguments, and environment variables.~~
+- ~~The client performs a basic health check (e.g., a ping or status endpoint call) to confirm each server is running.~~
+- ~~The system logs the launch status of each server.~~
+- ~~If a server fails to launch, an error is logged and returned as part of the debugging stream.~~
 
 ---
 
-### User Story 2.3: Discover Server Capabilities
+### ✓ ~~User Story 2.3: Discover Server Capabilities~~
 
 **Description**:
-As an engineer, I want the client to query each launched server for its available tools and resources so that these details can be included in the LLM's system prompt.
+~~As an engineer, I want the client to query each launched server for its available tools and resources so that these details can be included in the LLM's system prompt.~~
 
 **Acceptance Criteria**:
 
-- After launching, the client sends requests to each server's `/tools/list` and `/resources/list` endpoints.
-- The client stores and logs the retrieved capabilities.
-- These capabilities are made available for incorporation into the LLM chat's initialization prompt in subsequent sessions.
+- ~~After launching, the client sends requests to each server's `/tools/list` and `/resources/list` endpoints.~~
+- ~~The client stores and logs the retrieved capabilities.~~
+- ~~These capabilities are made available for incorporation into the LLM chat's initialization prompt in subsequent sessions.~~
 
 ---
 

@@ -178,18 +178,18 @@ _Note: This epic is only tackled once the basic LLM chat interaction is proven s
 
 ---
 
-### User Story 2.5: Limit Tool Invocations and Continue Conversation
+### ✓ ~~User Story 2.5: Limit Tool Invocations and Continue Conversation~~
 
 **Description**:
-As an engineer, I want the client to enforce a maximum number of tool invocations per session and continue the conversation seamlessly once that limit is reached so that the LLM does not enter an infinite loop of tool calls.
+~~As an engineer, I want the client to enforce a maximum number of tool invocations per session and continue the conversation seamlessly once that limit is reached so that the LLM does not enter an infinite loop of tool calls.~~
 
 **Acceptance Criteria**:
 
-- The client tracks the number of tool invocations in the current session.
-- Once the number reaches the configured `max_tool_calls`, any further tool invocation requests are either ignored or replaced with a final message.
-- The conversation continues normally without additional tool calls.
-- The final message from the LLM (with no pending tool calls) is streamed back to the host.
-- All steps, including when the tool limit is reached, are logged.
+- ✓ ~~The client tracks the number of tool invocations in the current session.~~
+- ✓ ~~Once the number reaches the configured `max_tool_calls`, any further tool invocation requests are either ignored or replaced with a final message.~~
+- ✓ ~~The conversation continues normally without additional tool calls.~~
+- ✓ ~~The final message from the LLM (with no pending tool calls) is streamed back to the host.~~
+- ✓ ~~All steps, including when the tool limit is reached, are logged.~~
 
 ---
 

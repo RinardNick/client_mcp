@@ -134,7 +134,7 @@ _Note: This epic is only tackled once the basic LLM chat interaction is proven s
 
 ---
 
-### User Story 2.2: Launch MCP Servers Based on Configuration
+### ✓ ~~User Story 2.2: Launch MCP Servers Based on Configuration~~
 
 **Description**:
 As an engineer, I want the client to launch each MCP server defined in the configuration so that their tool capabilities are available.

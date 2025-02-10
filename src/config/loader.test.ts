@@ -14,6 +14,14 @@ describe('Configuration Loader', () => {
       system_prompt: 'You are a helpful assistant.',
       model: 'claude-3-sonnet-20240229',
     },
+    max_tool_calls: 3,
+    servers: {
+      filesystem: {
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+        env: {},
+      },
+    },
   };
 
   beforeEach(() => {
@@ -98,5 +106,72 @@ describe('Configuration Loader', () => {
     vi.mocked(mockFs.readFile).mockResolvedValue(JSON.stringify(invalidConfig));
 
     await expect(loadConfig('config.json')).rejects.toThrow(ConfigurationError);
+  });
+
+  describe('Server Configuration', () => {
+    it('should validate server command is present', async () => {
+      const invalidConfig = {
+        ...validConfig,
+        servers: {
+          filesystem: {
+            args: [],
+            env: {},
+          },
+        },
+      };
+
+      vi.mocked(mockFs.readFile).mockResolvedValue(
+        JSON.stringify(invalidConfig)
+      );
+      await expect(loadConfig('config.json')).rejects.toThrow(
+        ConfigurationError
+      );
+    });
+
+    it('should validate server args is an array', async () => {
+      const invalidConfig = {
+        ...validConfig,
+        servers: {
+          filesystem: {
+            command: 'npx',
+            args: 'not-an-array',
+            env: {},
+          },
+        },
+      };
+
+      vi.mocked(mockFs.readFile).mockResolvedValue(
+        JSON.stringify(invalidConfig)
+      );
+      await expect(loadConfig('config.json')).rejects.toThrow(
+        ConfigurationError
+      );
+    });
+
+    it('should validate server env is an object', async () => {
+      const invalidConfig = {
+        ...validConfig,
+        servers: {
+          filesystem: {
+            command: 'npx',
+            args: [],
+            env: 'not-an-object',
+          },
+        },
+      };
+
+      vi.mocked(mockFs.readFile).mockResolvedValue(
+        JSON.stringify(invalidConfig)
+      );
+      await expect(loadConfig('config.json')).rejects.toThrow(
+        ConfigurationError
+      );
+    });
+
+    it('should accept valid server configuration', async () => {
+      vi.mocked(mockFs.readFile).mockResolvedValue(JSON.stringify(validConfig));
+      const config = await loadConfig('config.json');
+      expect(config).toEqual(validConfig);
+    });
   });
 });

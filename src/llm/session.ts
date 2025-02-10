@@ -3,12 +3,14 @@ import { LLMConfig } from '../config/types';
 import { ChatSession, ChatMessage, LLMError } from './types';
 import Anthropic from '@anthropic-ai/sdk';
 
+// Global session store shared across imports
+const globalSessions = new Map<string, ChatSession>();
+
 export class SessionManager {
-  private sessions: Map<string, ChatSession>;
   private anthropic!: Anthropic;
 
   constructor() {
-    this.sessions = new Map();
+    // No need to initialize sessions map here anymore
   }
 
   async initializeSession(config: LLMConfig): Promise<ChatSession> {
@@ -56,7 +58,7 @@ export class SessionManager {
         });
       }
 
-      this.sessions.set(sessionId, session);
+      globalSessions.set(sessionId, session);
       console.log(`Initialized new chat session: ${sessionId}`);
       return session;
     } catch (error) {
@@ -72,6 +74,13 @@ export class SessionManager {
   async sendMessage(sessionId: string, message: string): Promise<ChatMessage> {
     try {
       const session = this.getSession(sessionId);
+
+      // Initialize Anthropic client if not already initialized
+      if (!this.anthropic) {
+        this.anthropic = new Anthropic({
+          apiKey: session.config.api_key,
+        });
+      }
 
       // Add user message to history
       session.messages.push({
@@ -124,7 +133,16 @@ export class SessionManager {
     message: string
   ): AsyncGenerator<{ type: string; content?: string; error?: string }> {
     try {
+      console.log('[SESSION] Getting session:', sessionId);
       const session = this.getSession(sessionId);
+
+      // Initialize Anthropic client if not already initialized
+      if (!this.anthropic) {
+        console.log('[SESSION] Initializing Anthropic client');
+        this.anthropic = new Anthropic({
+          apiKey: session.config.api_key,
+        });
+      }
 
       // Add user message to history
       session.messages.push({
@@ -132,7 +150,10 @@ export class SessionManager {
         content: message,
       });
 
+      console.log('[SESSION] Creating stream with messages:', session.messages);
+
       // Send message to Anthropic with streaming
+      console.log('[SESSION] Creating Anthropic stream');
       const stream = await this.anthropic.messages.create({
         model: session.config.model,
         max_tokens: 1024,
@@ -144,13 +165,16 @@ export class SessionManager {
       });
 
       let accumulatedContent = '';
+      console.log('[SESSION] Starting to process Anthropic stream');
 
       for await (const chunk of stream) {
+        console.log('[SESSION] Raw Anthropic chunk:', chunk);
         if (
           chunk.type === 'content_block_delta' &&
           chunk.delta?.type === 'text_delta'
         ) {
           accumulatedContent += chunk.delta.text;
+          console.log('[SESSION] Yielding content:', chunk.delta.text);
           yield { type: 'content', content: chunk.delta.text };
         }
       }
@@ -164,9 +188,10 @@ export class SessionManager {
       // Update session activity
       this.updateSessionActivity(sessionId);
 
+      console.log('[SESSION] Stream complete, yielding done');
       yield { type: 'done' };
     } catch (error) {
-      console.error('Failed to send message:', error);
+      console.error('[SESSION] Error in stream:', error);
       yield {
         type: 'error',
         error:
@@ -178,7 +203,7 @@ export class SessionManager {
   }
 
   getSession(sessionId: string): ChatSession {
-    const session = this.sessions.get(sessionId);
+    const session = globalSessions.get(sessionId);
     if (!session) {
       throw new LLMError(`Session not found: ${sessionId}`);
     }

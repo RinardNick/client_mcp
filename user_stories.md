@@ -103,14 +103,14 @@ The goal is to incrementally build the MCP client. We start with a minimal, work
 
 _Note: This epic is only tackled once the basic LLM chat interaction is proven stable._
 
-### User Story 2.1: Extend Configuration File to Include Server Details
+### ✓ ~~User Story 2.1: Extend Configuration File to Include Server Details~~
 
 **Description**:
-As an engineer, I want to update the configuration file to include server information so that the client can later launch MCP servers for tool invocation.
+~~As an engineer, I want to update the configuration file to include server information so that the client can later launch MCP servers for tool invocation.~~
 
 **Acceptance Criteria**:
 
-- The configuration file is extended with a `servers` section. For example:
+- ~~The configuration file is extended with a `servers` section. For example:~~
   ```json
   {
     "llm": { ... },
@@ -129,8 +129,8 @@ As an engineer, I want to update the configuration file to include server inform
     }
   }
   ```
-- The client successfully parses the extended configuration.
-- The presence of server details is logged, even if they are not used in the initial LLM-only flow.
+- ~~The client successfully parses the extended configuration.~~
+- ~~The presence of server details is logged, even if they are not used in the initial LLM-only flow.~~
 
 ---
 
@@ -202,6 +202,7 @@ As an engineer, I want the client to enforce a maximum number of tool invocation
    - ✓ JSON configuration loading and validation
    - ✓ Error handling for invalid configurations
    - ✓ Support for optional fields
+   - ✓ Server configuration validation
 
 2. LLM Integration
 

@@ -5,16 +5,16 @@ export interface LLMConfig {
   model: string;
 }
 
-export interface MCPConfig {
-  llm: LLMConfig;
-  max_tool_calls?: number;
-  servers?: Record<string, ServerConfig>;
-}
-
 export interface ServerConfig {
   command: string;
   args: string[];
   env: Record<string, string>;
+}
+
+export interface MCPConfig {
+  llm: LLMConfig;
+  max_tool_calls?: number;
+  servers?: Record<string, ServerConfig>;
 }
 
 // Error types for configuration validation

@@ -95,5 +95,23 @@ function validateServers(servers: Record<string, unknown>) {
         `Server '${serverName}' env must be an object`
       );
     }
+
+    // Validate that all args are strings
+    for (const arg of server.args) {
+      if (typeof arg !== 'string') {
+        throw new ConfigurationError(
+          `Server '${serverName}' args must all be strings`
+        );
+      }
+    }
+
+    // Validate that all env values are strings
+    for (const [key, value] of Object.entries(server.env)) {
+      if (typeof value !== 'string') {
+        throw new ConfigurationError(
+          `Server '${serverName}' env values must all be strings`
+        );
+      }
+    }
   }
 }

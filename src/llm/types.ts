@@ -1,4 +1,5 @@
 import { LLMConfig } from '../config/types';
+import { MCPClient } from '@modelcontextprotocol/sdk';
 
 export interface ChatSession {
   id: string;
@@ -6,6 +7,9 @@ export interface ChatSession {
   createdAt: Date;
   lastActivityAt: Date;
   messages: ChatMessage[];
+  mcpClient?: MCPClient;
+  toolCallCount: number;
+  maxToolCalls: number;
 }
 
 export interface ToolCall {
@@ -18,6 +22,7 @@ export interface ChatMessage {
   content: string;
   hasToolCall?: boolean;
   toolCall?: ToolCall;
+  isToolResult?: boolean;
 }
 
 export class LLMError extends Error {

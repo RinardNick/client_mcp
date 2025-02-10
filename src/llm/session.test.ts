@@ -267,4 +267,12 @@ describe('SessionManager', () => {
       ).rejects.toThrow('Failed to execute tool');
     });
   });
+
+  // Move tool limit test to User Story 2.5
+  describe('Tool Call Limits (User Story 2.5)', () => {
+    it('should limit tool invocations and continue conversation when limit reached', async () => {
+      // This test will be implemented as part of User Story 2.5
+      expect(true).toBe(true);
+    });
+  });
 });

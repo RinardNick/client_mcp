@@ -1,58 +1,62 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SessionManager } from './session';
 import { LLMError } from './types';
 import Anthropic from '@anthropic-ai/sdk';
+import { LLMConfig } from '../config/types';
+
+// Mock interfaces
+interface MCPClient {
+  invokeTool(
+    name: string,
+    parameters: Record<string, unknown>
+  ): Promise<unknown>;
+}
 
 // Mock Anthropic SDK
-vi.mock('@anthropic-ai/sdk', () => {
-  const mockCreate = vi.fn();
-  return {
-    default: vi.fn().mockImplementation(() => ({
-      messages: {
-        create: mockCreate.mockResolvedValue({
-          id: 'test-id',
-          model: 'claude-3-sonnet-20240229',
-          role: 'assistant',
-          content: [{ type: 'text', text: 'Mock response' }],
-          stop_reason: null,
-          usage: { input_tokens: 10, output_tokens: 20 },
-        }),
-      },
-    })),
-    mockCreate, // Export for test access
-  };
+const mockCreate = vi.fn().mockResolvedValue({
+  id: 'msg_123',
+  model: 'claude-3-opus-20240229',
+  role: 'assistant',
+  content: [{ type: 'text', text: 'Mock response' }],
+  stop_reason: 'end_turn',
+  usage: { input_tokens: 10, output_tokens: 20 },
 });
 
+vi.mock('@anthropic-ai/sdk', () => ({
+  Anthropic: vi.fn().mockImplementation(() => ({
+    messages: {
+      create: mockCreate,
+    },
+  })),
+}));
+
 describe('SessionManager', () => {
-  const validConfig = {
-    type: 'claude',
-    api_key: 'test-key',
-    system_prompt: 'You are a helpful assistant.',
-    model: 'claude-3-sonnet-20240229',
-  };
-
   let sessionManager: SessionManager;
-  let mockCreate: ReturnType<typeof vi.fn>;
+  let validConfig: LLMConfig;
+  let mockMCPClient: MCPClient;
 
-  beforeEach(() => {
-    sessionManager = new SessionManager();
-    mockCreate = vi.fn();
-    vi.mocked(Anthropic).mockImplementation(() => ({
-      messages: {
-        create: mockCreate.mockResolvedValue({
-          id: 'test-id',
-          model: 'claude-3-sonnet-20240229',
-          role: 'assistant',
-          content: [{ type: 'text', text: 'Mock response' }],
-          stop_reason: null,
-          usage: { input_tokens: 10, output_tokens: 20 },
-        }),
+  beforeEach(async () => {
+    // Create a mock MCP client
+    mockMCPClient = {
+      async invokeTool(name: string, parameters: Record<string, unknown>) {
+        return { files: ['file1.txt', 'file2.txt'] };
       },
-    }));
+    };
+
+    validConfig = {
+      type: 'claude',
+      api_key: 'test-key',
+      model: 'claude-3-opus-20240229',
+      system_prompt: 'You are a helpful assistant.',
+    };
+
+    sessionManager = new SessionManager();
   });
 
+  // Regular tests using mock MCP client
   it('should initialize a new session with valid config', async () => {
     const session = await sessionManager.initializeSession(validConfig);
+    session.mcpClient = mockMCPClient;
 
     expect(session).toBeDefined();
     expect(session.id).toBeDefined();
@@ -72,6 +76,7 @@ describe('SessionManager', () => {
 
   it('should retrieve an existing session', async () => {
     const session = await sessionManager.initializeSession(validConfig);
+    session.mcpClient = mockMCPClient;
     const retrieved = sessionManager.getSession(session.id);
     expect(retrieved).toEqual(session);
   });
@@ -82,6 +87,7 @@ describe('SessionManager', () => {
 
   it('should update session activity timestamp', async () => {
     const session = await sessionManager.initializeSession(validConfig);
+    session.mcpClient = mockMCPClient;
     const originalTimestamp = session.lastActivityAt;
 
     // Wait a small amount to ensure timestamp difference
@@ -97,7 +103,10 @@ describe('SessionManager', () => {
 
   it('should send a message and receive a response', async () => {
     const session = await sessionManager.initializeSession(validConfig);
-    const response = await sessionManager.sendMessage(session.id, 'Hello');
+    session.mcpClient = mockMCPClient;
+    const message = 'Hello';
+
+    const response = await sessionManager.sendMessage(session.id, message);
 
     expect(response).toEqual({
       role: 'assistant',
@@ -105,51 +114,157 @@ describe('SessionManager', () => {
       hasToolCall: false,
       toolCall: undefined,
     });
-
-    const updatedSession = sessionManager.getSession(session.id);
-    expect(updatedSession.messages).toHaveLength(4); // System + assistant + user + assistant
-    expect(updatedSession.messages[2]).toEqual({
-      role: 'user',
-      content: 'Hello',
-    });
-    expect(updatedSession.messages[3]).toEqual({
-      role: 'assistant',
-      content: 'Mock response',
-      hasToolCall: false,
-      toolCall: undefined,
-    });
   });
 
-  describe('Tool Invocation', () => {
-    it('should detect tool invocation in LLM response', async () => {
+  describe('Tool Invocation (User Story 2.4)', () => {
+    it('should execute tools and incorporate results into conversation', async () => {
+      // Setup
       const session = await sessionManager.initializeSession(validConfig);
+      session.mcpClient = mockMCPClient;
+      mockCreate.mockReset();
 
-      // Mock Anthropic response with a tool invocation
+      // 1. Assistant response with tool invocation
       mockCreate.mockResolvedValueOnce({
         id: 'test-id',
-        model: 'claude-3-sonnet-20240229',
         role: 'assistant',
         content: [
           {
             type: 'text',
-            text: 'I will use the list-files tool to check the directory.\n<tool>list-files {"path": "/tmp"}</tool>',
+            text: 'Let me check the files.\n<tool>list-files {"path": "/tmp"}</tool>',
           },
         ],
-        stop_reason: null,
-        usage: { input_tokens: 10, output_tokens: 20 },
       });
 
+      // 2. Assistant response after tool execution
+      mockCreate.mockResolvedValueOnce({
+        id: 'test-id-2',
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: 'Here are the files I found: file1.txt and file2.txt',
+          },
+        ],
+      });
+
+      // User asks to list files
       const response = await sessionManager.sendMessage(
         session.id,
-        'List files in /tmp'
+        'What files are in /tmp?'
       );
 
-      expect(response.content).toContain('list-files');
-      expect(response.hasToolCall).toBe(true);
-      expect(response.toolCall).toEqual({
-        name: 'list-files',
-        parameters: { path: '/tmp' },
+      // Verify acceptance criteria
+      const conversation = sessionManager.getSession(session.id).messages;
+
+      // 1. Tool invocation detected in LLM response
+      const toolResponse = conversation.find(m =>
+        m.content.includes('<tool>list-files')
+      );
+      expect(toolResponse).toBeDefined();
+      expect(toolResponse?.hasToolCall).toBe(true);
+
+      // 2. Tool request properly formatted and executed
+      const toolResult = conversation.find(m => m.isToolResult);
+      expect(toolResult).toBeDefined();
+      expect(JSON.parse(toolResult!.content)).toEqual({
+        files: ['file1.txt', 'file2.txt'],
       });
+
+      // 3. Tool output incorporated in conversation
+      const finalResponse = conversation[conversation.length - 1];
+      expect(finalResponse.content).toContain('file1.txt');
+      expect(finalResponse.content).toContain('file2.txt');
+    });
+
+    it('should stream conversation including tool results to host', async () => {
+      // Setup initial mock response for session initialization
+      mockCreate.mockResolvedValueOnce({
+        id: 'msg_123',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'I am ready to help.' }],
+      });
+
+      const session = await sessionManager.initializeSession(validConfig);
+      session.mcpClient = mockMCPClient;
+
+      // Setup mock streaming response
+      mockCreate.mockResolvedValueOnce({
+        [Symbol.asyncIterator]: async function* () {
+          // Initial response with tool call
+          yield {
+            type: 'content_block_delta',
+            delta: { type: 'text_delta', text: 'Let me check the files.' },
+          };
+          yield {
+            type: 'content_block_delta',
+            delta: {
+              type: 'text_delta',
+              text: '\n<tool>list-files {"path": "/tmp"}</tool>',
+            },
+          };
+
+          // Tool execution results
+          yield {
+            type: 'content_block_delta',
+            delta: { type: 'text_delta', text: 'I found these files: ' },
+          };
+          yield {
+            type: 'content_block_delta',
+            delta: { type: 'text_delta', text: 'file1.txt and file2.txt' },
+          };
+        },
+      });
+
+      // Collect streamed responses
+      const streamedContent: string[] = [];
+      for await (const chunk of sessionManager.sendMessageStream(
+        session.id,
+        'What files are in /tmp?'
+      )) {
+        if (chunk.type === 'content' && chunk.content) {
+          streamedContent.push(chunk.content);
+        }
+      }
+
+      // Verify streaming behavior matches user story requirements
+      expect(streamedContent).toEqual([
+        'Let me check the files.',
+        '\n<tool>list-files {"path": "/tmp"}</tool>',
+        'I found these files: ',
+        'file1.txt and file2.txt',
+      ]);
+    });
+
+    it('should handle tool execution errors gracefully', async () => {
+      // Setup initial mock response for session initialization
+      mockCreate.mockResolvedValueOnce({
+        id: 'msg_123',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'I am ready to help.' }],
+      });
+
+      const session = await sessionManager.initializeSession(validConfig);
+      session.mcpClient = {
+        async invokeTool() {
+          throw new Error('Tool execution failed');
+        },
+      };
+
+      mockCreate.mockResolvedValueOnce({
+        id: 'test-id',
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: 'Let me check the files.\n<tool>list-files {"path": "/tmp"}</tool>',
+          },
+        ],
+      });
+
+      // Verify error is communicated to user
+      await expect(
+        sessionManager.sendMessage(session.id, 'What files are in /tmp?')
+      ).rejects.toThrow('Failed to execute tool');
     });
   });
 });

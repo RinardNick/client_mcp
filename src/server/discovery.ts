@@ -11,21 +11,12 @@ export class ServerDiscovery {
     baseUrl: string
   ): Promise<ServerCapabilities> {
     try {
-      // Fetch tools
       const toolsResponse = await fetch(`${baseUrl}/tools/list`);
-      if (!toolsResponse.ok) {
-        throw new Error(`Failed to fetch tools from server ${serverName}`);
-      }
-      const toolsData = await toolsResponse.json();
-
-      // Fetch resources
       const resourcesResponse = await fetch(`${baseUrl}/resources/list`);
-      if (!resourcesResponse.ok) {
-        throw new Error(`Failed to fetch resources from server ${serverName}`);
-      }
+
+      const toolsData = await toolsResponse.json();
       const resourcesData = await resourcesResponse.json();
 
-      // Validate response data
       if (!toolsData.tools || !resourcesData.resources) {
         throw new Error(`Invalid response from server ${serverName}`);
       }

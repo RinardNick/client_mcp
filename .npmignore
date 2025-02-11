@@ -1,3 +1,4 @@
  /test-ui
  test-ui/*
- 
+ config.json
+ .gitignore

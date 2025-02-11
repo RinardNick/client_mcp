@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { loadConfig } from './loader';
 import { ConfigurationError } from './types';
 import fs from 'fs/promises';

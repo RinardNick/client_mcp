@@ -34,5 +34,5 @@ coverage/
 .DS_Store
 Thumbs.db 
 
-# Test UI
-test-ui/
+# MCP Host
+ts_mcp_host/

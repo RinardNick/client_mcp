@@ -108,6 +108,36 @@ describe('Configuration Loader', () => {
     await expect(loadConfig('config.json')).rejects.toThrow(ConfigurationError);
   });
 
+  it('should require max_tool_calls field', async () => {
+    const configWithoutToolCalls = {
+      llm: validConfig.llm,
+      servers: validConfig.servers,
+    };
+
+    vi.mocked(mockFs.readFile).mockResolvedValue(
+      JSON.stringify(configWithoutToolCalls)
+    );
+
+    await expect(loadConfig('config.json')).rejects.toThrow(
+      'max_tool_calls is required'
+    );
+  });
+
+  it('should require servers field', async () => {
+    const configWithoutServers = {
+      llm: validConfig.llm,
+      max_tool_calls: validConfig.max_tool_calls,
+    };
+
+    vi.mocked(mockFs.readFile).mockResolvedValue(
+      JSON.stringify(configWithoutServers)
+    );
+
+    await expect(loadConfig('config.json')).rejects.toThrow(
+      'servers section is required'
+    );
+  });
+
   describe('Server Configuration', () => {
     it('should validate server command is present', async () => {
       const invalidConfig = {

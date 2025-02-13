@@ -32,18 +32,17 @@ function validateConfig(config: any): asserts config is MCPConfig {
 
   validateLLMConfig(config.llm);
 
-  if (
-    config.max_tool_calls !== undefined &&
-    (typeof config.max_tool_calls !== 'number' || config.max_tool_calls < 0)
-  ) {
+  if (typeof config.max_tool_calls !== 'number' || config.max_tool_calls < 0) {
     throw new ConfigurationError(
-      'max_tool_calls must be a positive number if specified'
+      'max_tool_calls is required and must be a non-negative number'
     );
   }
 
-  if (config.servers) {
-    validateServers(config.servers);
+  if (!config.servers || typeof config.servers !== 'object') {
+    throw new ConfigurationError('servers section is required');
   }
+
+  validateServers(config.servers);
 }
 
 function validateLLMConfig(llm: any): asserts llm is LLMConfig {

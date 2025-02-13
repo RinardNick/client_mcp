@@ -21,6 +21,7 @@ describe('Server Configuration Validation', () => {
         system_prompt: 'test prompt',
         model: 'gpt-4',
       },
+      max_tool_calls: 10,
       servers: {
         test_server: {
           command: 'node',

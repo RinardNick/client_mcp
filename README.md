@@ -1,14 +1,66 @@
 # TypeScript MCP Client
 
-A TypeScript implementation of a Model Context Protocol (MCP) client that enables LLM chat interactions and tool invocations through MCP servers.
+A TypeScript implementation of a Model Context Protocol (MCP) client that manages LLM chat interactions, server lifecycle, and tool invocations through MCP servers.
 
 ## Features
 
-- Load and validate configuration from JSON files
-- Initialize LLM chat sessions using the Anthropic SDK
-- Stream conversation responses back to the host
-- Handle errors and provide detailed logging
+- Complete configuration management and validation
+- LLM session initialization and management
+- Server lifecycle management (launch, health checks, shutdown)
+- Tool capability discovery and invocation
+- Tool call limit enforcement
+- Streaming conversation responses
+- Error handling and recovery
 - Express middleware for easy integration
+
+## Core Responsibilities
+
+The MCP client handles several key responsibilities in the MCP architecture:
+
+1. **Configuration Management**
+
+   - Loads and validates configuration files
+   - Enforces required fields (llm, max_tool_calls, servers)
+   - Validates server configurations
+   - Example:
+
+   ```typescript
+   interface MCPConfig {
+     llm: LLMConfig;
+     max_tool_calls: number; // Required: Maximum number of tool calls per session
+     servers: Record<string, ServerConfig>; // Required: Server configurations
+   }
+   ```
+
+2. **Server Management**
+
+   - Launches MCP servers based on configuration
+   - Performs health checks
+   - Manages server lifecycle
+   - Discovers and caches tool capabilities
+   - Example:
+
+   ```typescript
+   interface ServerConfig {
+     command: string; // Required: Command to launch the server
+     args?: string[]; // Optional: Command line arguments
+     env?: Record<string, string>; // Optional: Environment variables
+   }
+   ```
+
+3. **Tool Invocation**
+
+   - Detects tool calls in LLM responses
+   - Routes tool calls to appropriate servers
+   - Enforces tool call limits
+   - Handles tool execution errors
+   - Integrates tool results back into conversations
+
+4. **Session Management**
+   - Initializes and maintains chat sessions
+   - Tracks conversation history
+   - Manages tool call limits per session
+   - Handles session cleanup
 
 ## Installation
 
@@ -18,31 +70,86 @@ npm install @rinardnick/ts-mcp-client
 
 ## Usage in Next.js
 
-### 1. API Route Setup
+### 1. Configuration Setup
+
+Create a `config.json` file in your project root:
+
+```json
+{
+  "llm": {
+    "type": "claude",
+    "model": "claude-3-5-sonnet-20241022",
+    "apiKey": "YOUR_API_KEY_HERE",
+    "systemPrompt": "You are a helpful assistant."
+  },
+  "max_tool_calls": 10,
+  "servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+      "env": {}
+    },
+    "terminal": {
+      "command": "npx",
+      "args": [
+        "@rinardnick/mcp-terminal",
+        "--allowed-commands",
+        "[go,python3,uv,npm,npx,git,ls,cd,touch,mv,pwd,mkdir]"
+      ],
+      "env": {}
+    }
+  }
+}
+```
+
+### 2. API Route Setup
 
 Create a new API route in your Next.js project (e.g., `pages/api/chat/[[...params]].ts`):
 
 ```typescript
-import { createChatRouter } from '@rinardnick/ts-mcp-client';
-import express from 'express';
-import { createServer } from 'http';
+import { SessionManager, LLMConfig } from '@rinardnick/ts-mcp-client';
+import { NextRequest, NextResponse } from 'next/server';
+import { loadConfig } from '@rinardnick/ts-mcp-client';
 
-const app = express();
-const chatRouter = createChatRouter();
-app.use('/api/chat', chatRouter);
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-export default function handler(req, res) {
-  app(req, res);
+let sessionManager: SessionManager;
+
+async function initializeIfNeeded() {
+  if (!sessionManager) {
+    try {
+      // Load and validate configuration
+      const config = await loadConfig('config.json');
+
+      // Create session manager
+      sessionManager = new SessionManager();
+
+      // Initialize session with LLM config and server setup
+      const session = await sessionManager.initializeSession(
+        config.llm,
+        config.servers,
+        config.max_tool_calls
+      );
+
+      console.log('[INIT] Session manager initialized successfully');
+      if (session.mcpClient) {
+        console.log('[INIT] Available tools:', session.mcpClient.tools);
+      }
+    } catch (error) {
+      console.error('[INIT] Failed to initialize:', error);
+      throw error;
+    }
+  }
 }
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+export async function POST(request: NextRequest) {
+  await initializeIfNeeded();
+  // ... rest of your route handler
+}
 ```
 
-### 2. Frontend Implementation
+### 3. Frontend Implementation
 
 Create a chat component (e.g., `components/Chat.tsx`):
 
@@ -145,87 +252,61 @@ export function Chat() {
 }
 ```
 
-### 3. Add Styling
+## Client Architecture
 
-Add some basic styles (e.g., `styles/Chat.css`):
+The client follows a clear separation of responsibilities:
 
-```css
-.chat-container {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 20px;
-}
+1. **Configuration Layer**
 
-.messages {
-  height: 500px;
-  overflow-y: auto;
-  border: 1px solid #ccc;
-  padding: 10px;
-  margin-bottom: 20px;
-}
+   - Validates all configuration before use
+   - Ensures required fields are present
+   - Type-checks all values
+   - Provides helpful error messages
 
-.message {
-  margin-bottom: 10px;
-  padding: 10px;
-  border-radius: 5px;
-}
+2. **Server Management Layer**
 
-.message.user {
-  background-color: #e3f2fd;
-  margin-left: 20%;
-}
+   - Handles server lifecycle
+   - Performs health checks
+   - Discovers tool capabilities
+   - Manages server errors and recovery
 
-.message.assistant {
-  background-color: #f5f5f5;
-  margin-right: 20%;
-}
+3. **Session Management Layer**
 
-.input-container {
-  display: flex;
-  gap: 10px;
-}
+   - Tracks active sessions
+   - Manages conversation history
+   - Enforces tool call limits
+   - Handles cleanup
 
-input {
-  flex: 1;
-  padding: 10px;
-  border: 1px solid #ccc;
-  border-radius: 5px;
-}
+4. **Tool Invocation Layer**
+   - Detects tool calls in LLM responses
+   - Routes calls to appropriate servers
+   - Handles tool execution
+   - Integrates results into conversations
 
-button {
-  padding: 10px 20px;
-  background-color: #0070f3;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-}
+## Best Practices
 
-button:hover {
-  background-color: #0051cc;
-}
-```
+1. **Configuration Management**
 
-## Configuration
+   - Always use `loadConfig` to load and validate configuration
+   - Include all required fields (llm, max_tool_calls, servers)
+   - Provide clear server configurations
 
-The client requires a configuration object with the following structure:
+2. **Server Management**
 
-```typescript
-interface LLMConfig {
-  type: string;
-  api_key: string;
-  system_prompt: string;
-  model: string;
-}
-```
+   - Let the client handle server lifecycle
+   - Don't interact with servers directly
+   - Use the client's API for all tool interactions
 
-## API Endpoints
+3. **Session Management**
 
-The package provides the following endpoints through the Express router:
+   - Initialize sessions through the SessionManager
+   - Let the client track tool call limits
+   - Use the streaming API for real-time updates
 
-- `POST /session` - Create a new chat session
-- `POST /session/:sessionId/message` - Send a message and receive a response
-- `POST /session/:sessionId/stream` - Send a message and receive a streaming response
+4. **Error Handling**
+   - Handle configuration errors during startup
+   - Implement proper error recovery in UI
+   - Use the client's error types for specific handling
 
 ## Development
 
@@ -238,6 +319,54 @@ npm test
 
 # Build the package
 npm run build
+```
+
+## API Reference
+
+### Configuration Types
+
+```typescript
+interface LLMConfig {
+  type: string;
+  api_key: string;
+  system_prompt: string;
+  model: string;
+}
+
+interface ServerConfig {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+interface MCPConfig {
+  llm: LLMConfig;
+  max_tool_calls: number;
+  servers: Record<string, ServerConfig>;
+}
+```
+
+### Session Management
+
+```typescript
+class SessionManager {
+  async initializeSession(
+    config: LLMConfig,
+    servers?: Record<string, ServerConfig>,
+    maxToolCalls?: number
+  ): Promise<ChatSession>;
+
+  async sendMessage(sessionId: string, message: string): Promise<any>;
+
+  async *sendMessageStream(sessionId: string, message: string): AsyncGenerator;
+}
+```
+
+### Error Types
+
+```typescript
+class ConfigurationError extends Error {}
+class LLMError extends Error {}
 ```
 
 ## License

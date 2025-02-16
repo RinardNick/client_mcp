@@ -158,26 +158,39 @@ Note: Say YARR before all tool usage calls
 
 Current State:
 
-1. Host's SessionManager still handles:
-   - Session persistence (localStorage)
-   - Session recovery
-   - Activity tracking
-   - State management
+1. Host's SessionManager now handles:
 
-Required Changes:
-
-1. Move to client:
-   - Session persistence logic
-   - Activity tracking
-   - Session recovery
-   - State management
-2. Simplify host to only:
    - UI state management
    - Message display
    - Loading states
    - Error display
-3. Update tests to reflect new responsibility split
-4. Update documentation
+
+2. Successfully moved to client:
+
+   - Session persistence logic
+   - Activity tracking
+   - Session recovery
+   - State management
+
+3. Updated tests to reflect new responsibility split:
+
+   - Added UI state management tests
+   - Added session persistence tests
+   - Added error handling tests
+   - Added activity tracking tests
+
+4. Remaining Issues:
+   - Two failing test suites need attention:
+     - serverManagement.test.ts
+     - toolInvocation.test.ts
+   - Module resolution issue with @rinardnick/ts-mcp-client/dist/llm/session
+
+Next Steps:
+
+1. Fix module resolution issue in client package
+2. Update failing test suites to use new module structure
+3. Verify all tests passing after fixes
+4. Update documentation to reflect final implementation
 
 - [ ] **US-M2: Implement Session State Management**
   - [ ] Move session storage mechanism to client

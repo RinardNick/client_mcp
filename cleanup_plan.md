@@ -142,63 +142,81 @@ Note: Say YARR before all tool usage calls
 
 ## Session Management Enhancement
 
-- [x] **US-M1: Clarify Session Manager Responsibilities**
+- [ ] **US-M1: Clarify Session Manager Responsibilities**
 
-  - ✓ Review and document SessionManager interface
-  - ✓ Remove any duplicate session logic from host
-  - ✓ Ensure clear separation of UI vs chat session
+  - [ ] Review and document SessionManager interface
+  - [ ] Remove duplicate session logic from host
+  - [ ] Ensure clear separation of UI vs chat session
+  - [ ] Move all session persistence to client
   - Acceptance Criteria:
-    - ✓ Clear documentation of responsibilities
-    - ✓ Host only handles UI session aspects
-    - ✓ Client manages chat session state
-    - ✓ All session tests pass
+    - Host only handles UI session aspects
+    - Client manages chat session state and persistence
+    - All session tests pass
+    - Clear documentation of responsibilities
 
 ### US-M1 Implementation Notes:
 
-1. Added comprehensive documentation to SessionManager class
-2. Verified clean separation of responsibilities:
-   - UI Session Management (host)
-   - Chat Session Delegation (client)
-   - Configuration Management
-3. Maintained test coverage for:
-   - Session initialization
-   - Message streaming
-   - Error handling
-   - Tool delegation
-4. No changes to implementation needed as functionality was already correct
-5. Updated documentation to reflect clear separation of concerns
+Current State:
 
-- [x] **US-M2: Implement Session Persistence**
-  - Add session storage mechanism in host
-  - Implement session recovery on page reload
-  - Add tests for persistence behavior
+1. Host's SessionManager still handles:
+   - Session persistence (localStorage)
+   - Session recovery
+   - Activity tracking
+   - State management
+
+Required Changes:
+
+1. Move to client:
+   - Session persistence logic
+   - Activity tracking
+   - Session recovery
+   - State management
+2. Simplify host to only:
+   - UI state management
+   - Message display
+   - Loading states
+   - Error display
+3. Update tests to reflect new responsibility split
+4. Update documentation
+
+- [ ] **US-M2: Implement Session State Management**
+  - [ ] Move session storage mechanism to client
+  - [ ] Implement session recovery in client
+  - [ ] Add tests for state management behavior
+  - [ ] Remove host storage dependencies
   - Acceptance Criteria:
-    - Sessions survive page reloads
+    - Client handles all session state
+    - Host maintains minimal UI state only
     - Clean session cleanup on explicit end
     - No memory leaks
-    - Persistence tests pass
+    - State management tests pass
 
 ### US-M2 Implementation Notes:
 
-1. Added comprehensive session persistence:
-   - Implemented localStorage-based session storage
-   - Added proper error handling for storage operations
-   - Improved session recovery with validation
-   - Added cleanup of expired sessions
-2. Enhanced session activity tracking:
-   - Activity updates before operations
-   - Proper persistence after updates
-   - Cleanup of expired sessions
-3. Added storage error handling:
-   - Graceful fallback when storage fails
-   - Continued operation without storage
-   - Clear error logging
-4. Maintained test coverage for:
-   - Session persistence
-   - Session recovery
-   - Activity tracking
-   - Error handling
-   - Storage cleanup
+Current State:
+
+1. Host currently manages:
+   - Session storage in localStorage
+   - Session recovery logic
+   - Activity timestamps
+   - Session cleanup
+
+Required Changes:
+
+1. In Client:
+   - Add session persistence layer
+   - Implement activity tracking
+   - Add session recovery logic
+   - Add session cleanup
+2. In Host:
+   - Remove localStorage usage
+   - Remove session recovery logic
+   - Remove activity tracking
+   - Keep only UI state
+3. Update Tests:
+   - Move persistence tests to client
+   - Add UI-only state tests to host
+   - Verify proper delegation
 
 ## Error Handling Improvement
 

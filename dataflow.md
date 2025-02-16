@@ -10,28 +10,33 @@
 
 ### Host (MCP Host)
 
-- Manages user interface and web API endpoints
-- Handles user authentication and session management
-- Maintains UI state and streaming connections
-- Formats and renders messages for display
-- Provides error feedback and reconnection UI
-- Routes messages to/from client
-- Manages user preferences and settings
-- Handles session persistence across page reloads
-- Provides debugging and monitoring interfaces
+- Provides web-based user interface
+- Renders chat messages and tool outputs
+- Displays real-time streaming updates
+- Shows loading and error states
+- Handles user input and interaction
+- Forwards messages to client
+- Maintains minimal UI state (loading flags, display preferences)
+- Provides debugging interface for development
+- Shows available tools in the UI
 
 ### Client (TS-MCP-Client)
 
-- Manages chat sessions and conversation history
-- Handles all LLM interactions and API calls
-- Coordinates MCP server lifecycle (launch, health checks, shutdown)
-- Implements tool detection, validation, and execution
-- Manages conversation state and tool limits
+- Manages all session state and lifecycle
+- Handles session persistence and recovery
+- Tracks session activity and expiry
+- Coordinates all LLM interactions
+- Manages server lifecycle (launch, health, shutdown)
+- Implements tool detection and execution
+- Enforces tool call limits
+- Maintains conversation history
 - Provides streaming updates of operations
 - Handles error recovery and retries
 - Maintains server capabilities registry
 - Implements MCP protocol for tool interactions
 - Manages configuration validation and loading
+- Caches tool capabilities for reuse
+- Provides capability refresh mechanisms
 
 ### MCP Servers
 
@@ -64,33 +69,42 @@ sequenceDiagram
     participant M as MCP Servers
     participant L as LLM (Anthropic)
 
-    H->>C: Initialize(config.json)
+    %% Initialization Flow
+    U->>H: Open Chat Interface
+    H->>C: Initialize Client
     C->>C: Load Config
     C->>M: Launch Servers
     C->>M: Health Check
     M-->>C: Health Status
     C->>M: Get Capabilities
     M-->>C: Tool List
-    C->>L: Initialize Session
+    C->>L: Initialize Session with Tools
     L-->>C: Session Created
-    C-->>H: Ready
+    C->>C: Store Session State
+    C-->>H: Session Ready + Tools List
+    H-->>U: Display Interface
 
-    U->>H: Message
-    H->>C: Send Message
-    C->>L: Send w/Tools
+    %% Message Flow
+    U->>H: Send Message
+    H->>C: Forward Message
+    C->>C: Update Session Activity
+    C->>L: Send w/Tools Context
     L-->>C: Response w/Tool Call
 
     Note over H,C: Begin Streaming
     C-->>H: Stream: Thinking
+    H-->>U: Display Thinking
 
     C->>M: Execute Tool
     M-->>C: Tool Result
     C-->>H: Stream: Tool Result
+    H-->>U: Display Tool Result
 
     C->>L: Send Tool Result
     L-->>C: Final Response
+    C->>C: Update Session State
     C-->>H: Stream: Content
-    H-->>U: Display
+    H-->>U: Display Content
 ```
 
 ## Detailed Data Flow
@@ -107,7 +121,7 @@ sequenceDiagram
 }
 ```
 
-#### 1.2 Client: Load & Validate Config
+#### 1.2 Client: Load & Initialize
 
 **Config File (config.json):**
 
@@ -136,6 +150,37 @@ sequenceDiagram
       "env": {}
     }
   }
+}
+```
+
+**Session Initialization with Tools:**
+
+```json
+{
+  "model": "claude-3-5-sonnet-20241022",
+  "max_tokens": 1024,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant with access to the following tools:"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "readFile",
+        "description": "Reads a file from the filesystem",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" }
+          },
+          "required": ["path"]
+        }
+      }
+    }
+  ]
 }
 ```
 
@@ -179,57 +224,6 @@ GET http://localhost:3001/tools/list
         },
         "required": ["path"]
       }
-    }
-  ]
-}
-```
-
-#### 1.5 Client → LLM: Initialize Session
-
-**Session Request:**
-
-```json
-{
-  "model": "claude-3-sonnet-20240229",
-  "max_tokens": 1024,
-  "messages": [
-    {
-      "role": "user",
-      "content": "You are a helpful assistant."
-    }
-  ],
-  "tools": [
-    {
-      "type": "function",
-      "function": {
-        "name": "readFile",
-        "description": "Reads the content of a file on the filesystem",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "path": { "type": "string" }
-          },
-          "required": ["path"]
-        }
-      }
-    }
-  ]
-}
-```
-
-**Session Response:**
-
-```json
-{
-  "sessionId": "sess_abc123",
-  "messages": [
-    {
-      "role": "system",
-      "content": "You are a helpful assistant."
-    },
-    {
-      "role": "assistant",
-      "content": "Hello! How may I assist you today?"
     }
   ]
 }
@@ -396,22 +390,114 @@ The stream types are:
 - `error`: Any error messages
 - `done`: Stream completion marker
 
-### 3. Error Flow with Inner Dialogue
+### 3. Session Management Flow
 
-#### 3.2 Client → Host: Error Stream with Context
+#### 3.1 Client: Session State Management
 
-**Error Event Stream:**
+**Internal Session State:**
+
+```typescript
+interface Session {
+  id: string;
+  config: LLMConfig;
+  createdAt: Date;
+  lastActivity: Date;
+  messages: Message[];
+  toolCallCount: number;
+  maxToolCalls: number;
+  capabilities: Tool[];
+}
+```
+
+**Session Operations:**
+
+- Create: Initialize new session with unique ID
+- Update: Track activity timestamps
+- Store: Persist session state
+- Recover: Load session from storage
+- Cleanup: Remove expired sessions
+- Validate: Check session health/expiry
+
+#### 3.2 Host: UI State Management
+
+**UI State:**
+
+```typescript
+interface UIState {
+  sessionId: string;
+  isLoading: boolean;
+  error: Error | null;
+  messages: DisplayMessage[];
+  availableTools: ToolInfo[];
+}
+```
+
+**UI Operations:**
+
+- Display messages
+- Show loading states
+- Handle errors
+- Update tool display
+- Manage user input
+
+### 4. Tool Execution Flow
+
+#### 4.1 Client → MCP Server: Execute Tool
+
+**Tool Request:**
 
 ```http
-Content-Type: text/event-stream
+POST http://localhost:3001/tools/invoke
+Content-Type: application/json
 
-data: {"type": "thinking", "content": "I'll check the files in /tmp for you."}
-data: {"type": "tool_start", "content": "Executing readFile tool with path: /tmp"}
-data: {"type": "error", "error": "Failed to execute tool readFile: File not found"}
-data: {"type": "thinking", "content": "I encountered an error. Let me explain what happened."}
-data: {"type": "content", "content": "I apologize, but I couldn't access the /tmp directory. The system reported that the path was not found."}
-data: {"type": "done"}
+{
+  "tool": "readFile",
+  "arguments": { "path": "/tmp" }
+}
 ```
+
+**Tool Response:**
+
+```json
+{
+  "files": ["file1.txt", "file2.txt", "log.txt"]
+}
+```
+
+### 5. Error Handling Flow
+
+#### 5.1 Client Error Handling
+
+**Error Types:**
+
+- Session Errors (not found, expired)
+- Tool Execution Errors
+- LLM Communication Errors
+- Server Health Errors
+- Storage Errors
+
+**Error Recovery:**
+
+- Automatic session recovery
+- Tool execution retries
+- Server health checks
+- Storage fallbacks
+
+#### 5.2 Host Error Display
+
+**Error Display Types:**
+
+- Connection Status
+- Tool Execution Status
+- Message Delivery Status
+- Session Status
+
+**User Feedback:**
+
+- Error messages
+- Retry options
+- Recovery status
+- Debug information
 
 ```
 

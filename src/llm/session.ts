@@ -55,37 +55,14 @@ export class SessionManager {
       console.log('[SESSION] Initializing Anthropic client');
       this.anthropic = new Anthropic({
         apiKey: config.api_key,
+        apiVersion: '2023-06-01',
       });
 
-      // Create initial message with system prompt
-      console.log('[SESSION] Sending initial message to Anthropic API');
-      const response = await this.anthropic.messages.create({
-        model: config.model,
-        max_tokens: 1024,
-        messages: [],
-        system: config.system_prompt,
-      });
-
-      console.log('[SESSION] Received response from Anthropic API:', {
-        status: 'success',
-        contentTypes: response.content.map(c => c.type),
-      });
-
-      // Store the session
+      // Store the system prompt in the session
       session.messages.push({
         role: 'system',
         content: config.system_prompt,
       });
-
-      const content =
-        response.content[0].type === 'text' ? response.content[0].text : null;
-
-      if (content) {
-        session.messages.push({
-          role: 'assistant',
-          content: content,
-        });
-      }
 
       globalSessions.set(sessionId, session);
       console.log(`[SESSION] Initialized new chat session: ${sessionId}`);
@@ -161,7 +138,7 @@ export class SessionManager {
 
       // Process response
       const content =
-        response.content[0].type === 'text' ? response.content[0].text : null;
+        response.content[0]?.type === 'text' ? response.content[0].text : null;
 
       if (!content) {
         throw new LLMError('Empty response from LLM');
@@ -244,7 +221,7 @@ export class SessionManager {
           });
 
           const followUpContent =
-            followUpResponse.content[0].type === 'text'
+            followUpResponse.content[0]?.type === 'text'
               ? followUpResponse.content[0].text
               : null;
 
@@ -328,6 +305,7 @@ export class SessionManager {
         console.log('[SESSION] Initializing Anthropic client');
         this.anthropic = new Anthropic({
           apiKey: session.config.api_key,
+          apiVersion: '2023-06-01',
         });
       }
 
@@ -354,16 +332,21 @@ export class SessionManager {
       let accumulatedContent = '';
       console.log('[SESSION] Starting to process Anthropic stream');
 
-      for await (const chunk of stream) {
-        console.log('[SESSION] Raw Anthropic chunk:', chunk);
-        if (
-          chunk.type === 'content_block_delta' &&
-          chunk.delta?.type === 'text_delta'
-        ) {
-          accumulatedContent += chunk.delta.text;
-          console.log('[SESSION] Yielding content:', chunk.delta.text);
-          yield { type: 'content', content: chunk.delta.text };
+      if (Symbol.asyncIterator in stream) {
+        for await (const chunk of stream) {
+          console.log('[SESSION] Raw Anthropic chunk:', chunk);
+          if (
+            chunk.type === 'content_block_delta' &&
+            chunk.delta?.type === 'text_delta'
+          ) {
+            accumulatedContent += chunk.delta.text;
+            console.log('[SESSION] Yielding content:', chunk.delta.text);
+            yield { type: 'content', content: chunk.delta.text };
+          }
         }
+      } else {
+        console.error('[SESSION] Stream does not support async iteration');
+        throw new LLMError('Stream does not support async iteration');
       }
 
       // Add assistant message to history

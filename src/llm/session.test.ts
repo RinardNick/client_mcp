@@ -13,13 +13,43 @@ interface MCPClient {
 }
 
 // Mock Anthropic SDK
-const mockCreate = vi.fn().mockResolvedValue({
-  id: 'msg_123',
-  model: 'claude-3-5-test-sonnet-20241022',
-  role: 'assistant',
-  content: [{ type: 'text', text: 'Mock response' }],
-  stop_reason: 'end_turn',
-  usage: { input_tokens: 10, output_tokens: 20 },
+const mockCreate = vi.fn().mockImplementation(options => {
+  if (options.stream) {
+    return {
+      [Symbol.asyncIterator]: async function* () {
+        // Initial response with tool call
+        yield {
+          type: 'content_block_delta',
+          delta: { type: 'text_delta', text: 'Let me check the files.' },
+        };
+        yield {
+          type: 'content_block_delta',
+          delta: {
+            type: 'text_delta',
+            text: '\n<tool>list-files {"path": "/tmp"}</tool>',
+          },
+        };
+
+        // Tool execution results
+        yield {
+          type: 'content_block_delta',
+          delta: { type: 'text_delta', text: 'I found these files: ' },
+        };
+        yield {
+          type: 'content_block_delta',
+          delta: { type: 'text_delta', text: 'file1.txt and file2.txt' },
+        };
+      },
+    };
+  }
+  return {
+    id: 'msg_123',
+    model: 'claude-3-5-test-sonnet-20241022',
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Mock response' }],
+    stop_reason: 'end_turn',
+    usage: { input_tokens: 10, output_tokens: 20 },
+  };
 });
 
 vi.mock('@anthropic-ai/sdk', () => ({
@@ -63,14 +93,10 @@ describe('SessionManager', () => {
     expect(session.config).toEqual(validConfig);
     expect(session.createdAt).toBeInstanceOf(Date);
     expect(session.lastActivityAt).toBeInstanceOf(Date);
-    expect(session.messages).toHaveLength(2); // System prompt + assistant response
+    expect(session.messages).toHaveLength(1); // Only system prompt
     expect(session.messages[0]).toEqual({
       role: 'system',
       content: validConfig.system_prompt,
-    });
-    expect(session.messages[1]).toEqual({
-      role: 'assistant',
-      content: 'Mock response',
     });
   });
 
@@ -187,32 +213,42 @@ describe('SessionManager', () => {
       const session = await sessionManager.initializeSession(validConfig);
       session.mcpClient = mockMCPClient;
 
-      // Setup mock streaming response
-      mockCreate.mockResolvedValueOnce({
-        [Symbol.asyncIterator]: async function* () {
-          // Initial response with tool call
-          yield {
-            type: 'content_block_delta',
-            delta: { type: 'text_delta', text: 'Let me check the files.' },
-          };
-          yield {
-            type: 'content_block_delta',
-            delta: {
-              type: 'text_delta',
-              text: '\n<tool>list-files {"path": "/tmp"}</tool>',
+      // Reset mock for streaming test
+      mockCreate.mockReset();
+      mockCreate.mockImplementation(options => {
+        if (options.stream) {
+          return {
+            [Symbol.asyncIterator]: async function* () {
+              // Initial response with tool call
+              yield {
+                type: 'content_block_delta',
+                delta: { type: 'text_delta', text: 'Let me check the files.' },
+              };
+              yield {
+                type: 'content_block_delta',
+                delta: {
+                  type: 'text_delta',
+                  text: '\n<tool>list-files {"path": "/tmp"}</tool>',
+                },
+              };
+
+              // Tool execution results
+              yield {
+                type: 'content_block_delta',
+                delta: { type: 'text_delta', text: 'I found these files: ' },
+              };
+              yield {
+                type: 'content_block_delta',
+                delta: { type: 'text_delta', text: 'file1.txt and file2.txt' },
+              };
             },
           };
-
-          // Tool execution results
-          yield {
-            type: 'content_block_delta',
-            delta: { type: 'text_delta', text: 'I found these files: ' },
-          };
-          yield {
-            type: 'content_block_delta',
-            delta: { type: 'text_delta', text: 'file1.txt and file2.txt' },
-          };
-        },
+        }
+        return {
+          id: 'msg_123',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Mock response' }],
+        };
       });
 
       // Collect streamed responses
@@ -250,21 +286,37 @@ describe('SessionManager', () => {
         },
       };
 
-      mockCreate.mockResolvedValueOnce({
-        id: 'test-id',
-        role: 'assistant',
-        content: [
-          {
-            type: 'text',
-            text: 'Let me check the files.\n<tool>list-files {"path": "/tmp"}</tool>',
-          },
-        ],
+      // Reset mock for error test
+      mockCreate.mockReset();
+      mockCreate.mockImplementation(options => {
+        if (options.stream) {
+          return {
+            [Symbol.asyncIterator]: async function* () {
+              yield {
+                type: 'content_block_delta',
+                delta: { type: 'text_delta', text: 'Let me check the files.' },
+              };
+            },
+          };
+        }
+        return {
+          id: 'test-id',
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: 'Let me check the files.\n<tool>list-files {"path": "/tmp"}</tool>',
+            },
+          ],
+        };
       });
 
       // Verify error is communicated to user
       await expect(
         sessionManager.sendMessage(session.id, 'What files are in /tmp?')
-      ).rejects.toThrow('Failed to execute tool');
+      ).rejects.toThrow(
+        'Failed to execute tool list-files: Tool execution failed'
+      );
     });
   });
 

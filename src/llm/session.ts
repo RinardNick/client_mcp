@@ -32,6 +32,13 @@ export class SessionManager {
 
   async initializeSession(config: LLMConfig): Promise<ChatSession> {
     try {
+      console.log('[SESSION] Initializing new session with config:', {
+        type: config.type,
+        model: config.model,
+        system_prompt: config.system_prompt,
+        api_key_length: config.api_key.length,
+      });
+
       // Create a new session with unique ID
       const sessionId = uuidv4();
       const session: ChatSession = {
@@ -41,24 +48,27 @@ export class SessionManager {
         lastActivityAt: new Date(),
         messages: [],
         toolCallCount: 0,
-        maxToolCalls: 2, // Set to 2 to match test expectations
+        maxToolCalls: 2,
       };
 
       // Initialize Anthropic client
+      console.log('[SESSION] Initializing Anthropic client');
       this.anthropic = new Anthropic({
         apiKey: config.api_key,
       });
 
       // Create initial message with system prompt
+      console.log('[SESSION] Sending initial message to Anthropic API');
       const response = await this.anthropic.messages.create({
         model: config.model,
         max_tokens: 1024,
-        messages: [
-          {
-            role: 'user',
-            content: config.system_prompt,
-          },
-        ],
+        messages: [],
+        system: config.system_prompt,
+      });
+
+      console.log('[SESSION] Received response from Anthropic API:', {
+        status: 'success',
+        contentTypes: response.content.map(c => c.type),
       });
 
       // Store the session
@@ -78,10 +88,17 @@ export class SessionManager {
       }
 
       globalSessions.set(sessionId, session);
-      console.log(`Initialized new chat session: ${sessionId}`);
+      console.log(`[SESSION] Initialized new chat session: ${sessionId}`);
       return session;
     } catch (error) {
-      console.error('Failed to initialize chat session:', error);
+      console.error('[SESSION] Failed to initialize chat session:', error);
+      if (error instanceof Error) {
+        console.error('[SESSION] Error details:', {
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+        });
+      }
       throw new LLMError(
         error instanceof Error
           ? error.message
@@ -133,10 +150,13 @@ export class SessionManager {
       const response = await this.anthropic.messages.create({
         model: session.config.model,
         max_tokens: 1024,
-        messages: session.messages.map(msg => ({
-          role: msg.role === 'system' ? 'user' : msg.role,
-          content: msg.content,
-        })),
+        system: session.config.system_prompt,
+        messages: session.messages
+          .filter(msg => msg.role !== 'system')
+          .map(msg => ({
+            role: msg.role === 'assistant' ? 'assistant' : 'user',
+            content: msg.content,
+          })),
       });
 
       // Process response

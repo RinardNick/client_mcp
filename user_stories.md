@@ -21,7 +21,7 @@ The goal is to incrementally build the MCP client. We start with a minimal, work
       "type": "claude",
       "api_key": "YOUR_API_KEY_HERE",
       "system_prompt": "You are a helpful assistant.",
-      "model": "claude-3-sonnet-20240229"
+      "model": "claude-3-5-sonnet-20241022"
     }
   }
   ```

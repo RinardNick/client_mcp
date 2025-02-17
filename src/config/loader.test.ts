@@ -12,7 +12,7 @@ describe('Configuration Loader', () => {
       type: 'claude',
       api_key: 'test-key',
       system_prompt: 'You are a helpful assistant.',
-      model: 'claude-3-sonnet-20240229',
+      model: 'claude-3-5-test-sonnet-20241022',
     },
     max_tool_calls: 3,
     servers: {

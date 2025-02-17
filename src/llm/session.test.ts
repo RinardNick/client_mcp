@@ -15,7 +15,7 @@ interface MCPClient {
 // Mock Anthropic SDK
 const mockCreate = vi.fn().mockResolvedValue({
   id: 'msg_123',
-  model: 'claude-3-opus-20240229',
+  model: 'claude-3-5-test-sonnet-20241022',
   role: 'assistant',
   content: [{ type: 'text', text: 'Mock response' }],
   stop_reason: 'end_turn',
@@ -46,7 +46,7 @@ describe('SessionManager', () => {
     validConfig = {
       type: 'claude',
       api_key: 'test-key',
-      model: 'claude-3-opus-20240229',
+      model: 'claude-3-5-test-sonnet-20241022',
       system_prompt: 'You are a helpful assistant.',
     };
 

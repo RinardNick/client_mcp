@@ -13,7 +13,7 @@ vi.mock('../llm/session', () => ({
         type: 'claude',
         api_key: 'test-key',
         system_prompt: 'Test prompt',
-        model: 'claude-3-sonnet-20240229',
+        model: 'claude-3-5-test-sonnet-20241022',
       },
       createdAt: new Date(),
       lastActivityAt: new Date(),

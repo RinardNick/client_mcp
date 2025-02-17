@@ -32,7 +32,7 @@ export class ServerLauncher {
 
           // Perform basic health check
           console.log(`[LAUNCHER] Starting health check for ${name}`);
-          await this.waitForHealthCheck();
+          await this.waitForHealthCheck(name);
           console.log(`[LAUNCHER] Health check passed for ${name}`);
           resolve();
         } catch (error) {
@@ -59,6 +59,7 @@ export class ServerLauncher {
   }
 
   private async waitForHealthCheck(
+    serverName: string,
     retries = 5,
     interval = 1000
   ): Promise<void> {
@@ -66,37 +67,28 @@ export class ServerLauncher {
       `[LAUNCHER] Starting health check with ${retries} retries at ${interval}ms intervals`
     );
 
-    for (let i = 0; i < retries; i++) {
-      console.log(`[LAUNCHER] Health check attempt ${i + 1}/${retries}`);
-      try {
-        const response = await fetch('http://localhost:3000/health', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
-        console.log(
-          `[LAUNCHER] Health check response status: ${response.status}`
-        );
+    // For stdio servers, we just need to verify the process is running and responsive
+    return new Promise((resolve, reject) => {
+      const server = this.servers.get(serverName);
 
-        if (response.ok) {
-          const data = await response.json();
-          console.log(`[LAUNCHER] Health check response data:`, data);
-          if (data.status === 'ok') {
-            console.log('[LAUNCHER] Health check succeeded');
-            return;
-          }
-        }
-      } catch (error) {
-        console.log(`[LAUNCHER] Health check attempt ${i + 1} failed:`, error);
+      if (!server || !server.pid) {
+        reject(new Error('Server process not found'));
+        return;
       }
 
-      console.log(`[LAUNCHER] Waiting ${interval}ms before next retry`);
-      await new Promise(resolve => setTimeout(resolve, interval));
-    }
-
-    console.error('[LAUNCHER] Health check failed after all retries');
-    throw new Error('Server health check failed');
+      // Check if process is running
+      try {
+        const isRunning = server.kill(0); // This just tests if we can send signals to the process
+        if (!isRunning) {
+          reject(new Error('Server health check failed'));
+          return;
+        }
+        console.log('[LAUNCHER] Server process is running');
+        resolve();
+      } catch (error) {
+        reject(new Error('Server health check failed'));
+      }
+    });
   }
 
   async stopAll(): Promise<void> {
@@ -107,5 +99,9 @@ export class ServerLauncher {
     }
     this.servers.clear();
     console.log('[LAUNCHER] All servers stopped');
+  }
+
+  getServerProcess(name: string): ChildProcess | null {
+    return this.servers.get(name) || null;
   }
 }

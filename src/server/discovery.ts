@@ -1,4 +1,5 @@
 import { MCPTool, MCPResource } from '@modelcontextprotocol/sdk';
+import { ChildProcess } from 'child_process';
 
 export interface ServerCapabilities {
   tools: MCPTool[];
@@ -8,59 +9,59 @@ export interface ServerCapabilities {
 export class ServerDiscovery {
   async discoverCapabilities(
     serverName: string,
-    baseUrl: string
+    process: ChildProcess
   ): Promise<ServerCapabilities> {
     console.log(
       `[DISCOVERY] Starting capability discovery for server: ${serverName}`
     );
-    console.log(`[DISCOVERY] Base URL: ${baseUrl}`);
 
-    try {
-      console.log(`[DISCOVERY] Fetching tools from ${baseUrl}/tools/list`);
-      const toolsResponse = await fetch(`${baseUrl}/tools/list`);
-      console.log(`[DISCOVERY] Tools response status: ${toolsResponse.status}`);
+    return new Promise((resolve, reject) => {
+      // Set up message handlers
+      let toolsData: any;
+      let resourcesData: any;
 
-      console.log(
-        `[DISCOVERY] Fetching resources from ${baseUrl}/resources/list`
+      // Listen for tool and resource data on stdout
+      process.stdout?.on('data', (data: Buffer) => {
+        try {
+          const message = JSON.parse(data.toString());
+          console.log(
+            `[DISCOVERY] Received message from ${serverName}:`,
+            message
+          );
+
+          if (message.type === 'tools') {
+            toolsData = message.data;
+          } else if (message.type === 'resources') {
+            resourcesData = message.data;
+          }
+
+          // If we have both tools and resources, resolve
+          if (toolsData && resourcesData) {
+            resolve({
+              tools: toolsData.tools || [],
+              resources: resourcesData.resources || [],
+            });
+          }
+        } catch (error) {
+          console.error(
+            `[DISCOVERY] Error parsing message from ${serverName}:`,
+            error
+          );
+        }
+      });
+
+      // Send discovery requests
+      process.stdin?.write(JSON.stringify({ command: 'list_tools' }) + '\n');
+      process.stdin?.write(
+        JSON.stringify({ command: 'list_resources' }) + '\n'
       );
-      const resourcesResponse = await fetch(`${baseUrl}/resources/list`);
-      console.log(
-        `[DISCOVERY] Resources response status: ${resourcesResponse.status}`
-      );
 
-      const toolsData = await toolsResponse.json();
-      const resourcesData = await resourcesResponse.json();
-
-      console.log(`[DISCOVERY] Received tools data:`, toolsData);
-      console.log(`[DISCOVERY] Received resources data:`, resourcesData);
-
-      if (!toolsData.tools || !resourcesData.resources) {
-        console.error(
-          `[DISCOVERY] Invalid response format from server ${serverName}`
+      // Set timeout
+      setTimeout(() => {
+        reject(
+          new Error(`Capability discovery timeout for server ${serverName}`)
         );
-        throw new Error(`Invalid response from server ${serverName}`);
-      }
-
-      const capabilities = {
-        tools: toolsData.tools,
-        resources: resourcesData.resources,
-      };
-
-      console.log(
-        `[DISCOVERY] Successfully discovered capabilities for ${serverName}:`,
-        capabilities
-      );
-      return capabilities;
-    } catch (error) {
-      console.error(
-        `[DISCOVERY] Error discovering capabilities for ${serverName}:`,
-        error
-      );
-      throw new Error(
-        `Failed to discover capabilities for server ${serverName}: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`
-      );
-    }
+      }, 5000);
+    });
   }
 }

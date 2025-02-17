@@ -91,11 +91,18 @@ export class SessionManager {
             await this.serverLauncher.launchServer(serverName, serverConfig);
             console.log(`[SESSION] Server ${serverName} launched successfully`);
 
+            // Get the server process
+            const serverProcess =
+              this.serverLauncher.getServerProcess(serverName);
+            if (!serverProcess) {
+              throw new Error(`Server process not found for ${serverName}`);
+            }
+
             // Discover server capabilities
             const capabilities =
               await this.serverDiscovery.discoverCapabilities(
                 serverName,
-                `http://localhost:${serverConfig.env?.PORT || 3000}`
+                serverProcess
               );
 
             // Store tools in session

@@ -1,92 +1,113 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { ServerDiscovery } from './discovery';
-import { ServerConfig } from '../config/types';
-
-// Mock fetch globally
-global.fetch = vi.fn();
+import { ChildProcess } from 'child_process';
+import { EventEmitter } from 'events';
 
 describe('ServerDiscovery', () => {
   let discovery: ServerDiscovery;
+  let mockProcess: ChildProcess;
+  let stdoutEmitter: EventEmitter;
+  let stdinBuffer: string[];
 
   beforeEach(() => {
-    vi.clearAllMocks();
     discovery = new ServerDiscovery();
+    stdoutEmitter = new EventEmitter();
+    stdinBuffer = [];
+
+    // Create mock process
+    mockProcess = {
+      stdout: stdoutEmitter,
+      stdin: {
+        write: (data: string) => {
+          stdinBuffer.push(data);
+          return true;
+        },
+      },
+    } as unknown as ChildProcess;
   });
 
   it('should discover tools and resources from a server', async () => {
     const mockTools = {
-      tools: [
-        {
-          name: 'list-files',
-          description: 'List files in a directory',
-          parameters: {
-            type: 'object',
-            properties: {
-              path: { type: 'string' },
-            },
+      type: 'tools',
+      data: {
+        tools: [
+          {
+            name: 'readFile',
+            description: 'Reads a file',
+            parameters: { properties: {} },
           },
-        },
-      ],
+        ],
+      },
     };
 
     const mockResources = {
-      resources: [
-        {
-          name: 'workspace',
-          type: 'directory',
-          description: 'Workspace root directory',
-        },
-      ],
+      type: 'resources',
+      data: {
+        resources: [{ name: 'filesystem', type: 'fs' }],
+      },
     };
 
-    // Mock successful responses for both endpoints
-    vi.mocked(fetch)
-      .mockImplementationOnce(() =>
-        Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve(mockTools),
-        })
-      )
-      .mockImplementationOnce(() =>
-        Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve(mockResources),
-        })
-      );
-
-    const capabilities = await discovery.discoverCapabilities(
-      'filesystem',
-      'http://localhost:3000'
+    // Set up promise to resolve after emitting both responses
+    const discoveryPromise = discovery.discoverCapabilities(
+      'test',
+      mockProcess
     );
 
-    expect(capabilities).toEqual({
-      tools: mockTools.tools,
-      resources: mockResources.resources,
-    });
+    // Emit mock responses after a short delay
+    setTimeout(() => {
+      stdoutEmitter.emit('data', Buffer.from(JSON.stringify(mockTools)));
+      stdoutEmitter.emit('data', Buffer.from(JSON.stringify(mockResources)));
+    }, 100);
 
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(fetch).toHaveBeenCalledWith('http://localhost:3000/tools/list');
-    expect(fetch).toHaveBeenCalledWith('http://localhost:3000/resources/list');
+    const result = await discoveryPromise;
+
+    // Verify the discovery requests were sent
+    expect(stdinBuffer).toContain(
+      JSON.stringify({ command: 'list_tools' }) + '\n'
+    );
+    expect(stdinBuffer).toContain(
+      JSON.stringify({ command: 'list_resources' }) + '\n'
+    );
+
+    // Verify the discovered capabilities
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0].name).toBe('readFile');
+    expect(result.resources).toHaveLength(1);
+    expect(result.resources[0].name).toBe('filesystem');
   });
 
   it('should handle server errors gracefully', async () => {
-    vi.mocked(fetch).mockRejectedValue(new Error('Connection failed'));
+    const discoveryPromise = discovery.discoverCapabilities(
+      'test',
+      mockProcess
+    );
 
-    await expect(
-      discovery.discoverCapabilities('test', 'http://localhost:3000')
-    ).rejects.toThrow(
-      'Failed to discover capabilities for server test: Connection failed'
+    // Emit invalid data
+    setTimeout(() => {
+      stdoutEmitter.emit('data', Buffer.from('invalid json'));
+    }, 100);
+
+    await expect(discoveryPromise).rejects.toThrow(
+      'Capability discovery timeout'
     );
   });
 
   it('should handle invalid response data', async () => {
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({}), // Empty response
-    });
+    const discoveryPromise = discovery.discoverCapabilities(
+      'test',
+      mockProcess
+    );
 
-    await expect(
-      discovery.discoverCapabilities('test', 'http://localhost:3000')
-    ).rejects.toThrow('Invalid response from server test');
+    // Emit invalid response structure
+    setTimeout(() => {
+      stdoutEmitter.emit(
+        'data',
+        Buffer.from(JSON.stringify({ type: 'unknown' }))
+      );
+    }, 100);
+
+    await expect(discoveryPromise).rejects.toThrow(
+      'Capability discovery timeout'
+    );
   });
 });

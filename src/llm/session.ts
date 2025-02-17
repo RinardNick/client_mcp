@@ -4,9 +4,9 @@ import { ChatMessage, LLMError } from './types';
 import { Anthropic } from '@anthropic-ai/sdk';
 import type { Tool } from '@anthropic-ai/sdk/resources/messages/messages';
 import { MCPClient, MCPTool } from '@modelcontextprotocol/sdk';
-
-// Global session store shared across imports
-const globalSessions = new Map<string, ChatSession>();
+import { ServerLauncher } from '../server/launcher';
+import { ServerDiscovery } from '../server/discovery';
+import { globalSessions } from './store';
 
 export interface ToolCall {
   name: string;
@@ -27,6 +27,8 @@ export interface ChatSession {
 
 export class SessionManager {
   private anthropic!: Anthropic;
+  private serverLauncher: ServerLauncher;
+  private serverDiscovery: ServerDiscovery;
 
   private formatToolsForLLM(tools: MCPTool[]): Tool[] {
     console.log('[SESSION] Formatting tools for LLM:', tools);
@@ -42,7 +44,8 @@ export class SessionManager {
   }
 
   constructor() {
-    // No need to initialize sessions map here anymore
+    this.serverLauncher = new ServerLauncher();
+    this.serverDiscovery = new ServerDiscovery();
   }
 
   async initializeSession(config: LLMConfig): Promise<ChatSession> {
@@ -77,6 +80,40 @@ export class SessionManager {
         role: 'system',
         content: config.system_prompt,
       });
+
+      // Launch MCP servers if configured
+      if (config.servers) {
+        console.log('[SESSION] Launching MCP servers');
+        for (const [serverName, serverConfig] of Object.entries(
+          config.servers
+        )) {
+          try {
+            await this.serverLauncher.launchServer(serverName, serverConfig);
+            console.log(`[SESSION] Server ${serverName} launched successfully`);
+
+            // Discover server capabilities
+            const capabilities =
+              await this.serverDiscovery.discoverCapabilities(
+                serverName,
+                `http://localhost:${serverConfig.env?.PORT || 3000}`
+              );
+
+            // Store tools in session
+            if (!session.tools) {
+              session.tools = [];
+            }
+            session.tools.push(...capabilities.tools);
+            console.log(
+              `[SESSION] Added ${capabilities.tools.length} tools from ${serverName}`
+            );
+          } catch (error) {
+            console.error(
+              `[SESSION] Failed to initialize server ${serverName}:`,
+              error
+            );
+          }
+        }
+      }
 
       globalSessions.set(sessionId, session);
       console.log(`[SESSION] Initialized new chat session: ${sessionId}`);

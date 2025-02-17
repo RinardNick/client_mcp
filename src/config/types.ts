@@ -3,12 +3,13 @@ export interface LLMConfig {
   api_key: string;
   system_prompt: string;
   model: string;
+  servers?: Record<string, ServerConfig>;
 }
 
 export interface ServerConfig {
   command: string;
   args: string[];
-  env: Record<string, string>;
+  env?: Record<string, string>;
 }
 
 export interface MCPConfig {

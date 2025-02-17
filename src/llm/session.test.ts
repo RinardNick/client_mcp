@@ -318,6 +318,89 @@ describe('SessionManager', () => {
         'Failed to execute tool list-files: Tool execution failed'
       );
     });
+
+    it('should enforce tool invocation limits', async () => {
+      // Setup
+      const session = await sessionManager.initializeSession(validConfig);
+      session.mcpClient = {
+        async invokeTool(name: string, parameters: Record<string, unknown>) {
+          return { files: ['file1.txt', 'file2.txt'] };
+        },
+      };
+      mockCreate.mockReset();
+
+      // First tool call
+      mockCreate.mockResolvedValueOnce({
+        id: 'test-id-1',
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: 'Let me check the first directory.\n<tool>list-files {"path": "/tmp"}</tool>',
+          },
+        ],
+      });
+
+      // Response after first tool execution
+      mockCreate.mockResolvedValueOnce({
+        id: 'test-id-2',
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: 'Let me check another directory.\n<tool>list-files {"path": "/var"}</tool>',
+          },
+        ],
+      });
+
+      // Response after second tool execution
+      mockCreate.mockResolvedValueOnce({
+        id: 'test-id-3',
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: 'I have reached the tool call limit. Here is what I found in the first two directories...',
+          },
+        ],
+      });
+
+      // Execute the test
+      const response = await sessionManager.sendMessage(
+        session.id,
+        'List files in multiple directories'
+      );
+
+      // Verify the conversation flow
+      const conversation = session.messages;
+
+      // Log conversation for debugging
+      console.log('Conversation:', JSON.stringify(conversation, null, 2));
+
+      // Should have:
+      // 1. System message
+      // 2. User message
+      // 3. First tool call message
+      // 4. First tool result
+      // 5. Second tool call message
+      // 6. Second tool result
+      // 7. Final limit message
+      expect(conversation).toHaveLength(7);
+      expect(conversation.filter(m => m.role === 'user')).toHaveLength(1);
+      expect(conversation.filter(m => m.hasToolCall)).toHaveLength(2); // Only 2 tool calls should be processed
+      expect(conversation.filter(m => m.isToolResult)).toHaveLength(2); // Only 2 tool results
+      expect(response.content).toContain('tool call limit');
+      expect(session.toolCallCount).toBe(2); // Should have reached the limit
+
+      // Verify the sequence of messages
+      expect(conversation[0].role).toBe('system'); // System prompt
+      expect(conversation[1].role).toBe('user'); // User message
+      expect(conversation[2].hasToolCall).toBe(true); // First tool call
+      expect(conversation[3].isToolResult).toBe(true); // First tool result
+      expect(conversation[4].hasToolCall).toBe(true); // Second tool call
+      expect(conversation[5].isToolResult).toBe(true); // Second tool result
+      expect(conversation[6].content).toContain('tool call limit'); // Final limit message
+    });
   });
 
   // Move tool limit test to User Story 2.5
@@ -325,6 +408,152 @@ describe('SessionManager', () => {
     it('should limit tool invocations and continue conversation when limit reached', async () => {
       // This test will be implemented as part of User Story 2.5
       expect(true).toBe(true);
+    });
+  });
+
+  describe('Tool Integration', () => {
+    it('should format and include tools in LLM messages', async () => {
+      // Setup
+      const session = await sessionManager.initializeSession(validConfig);
+      session.mcpClient = mockMCPClient;
+      session.tools = [
+        {
+          name: 'list-files',
+          description: 'List files in a directory',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string' },
+            },
+          },
+        },
+      ];
+
+      // Reset mock for test
+      mockCreate.mockReset();
+      mockCreate.mockImplementation(options => {
+        // Verify tools are formatted correctly
+        expect(options.tools).toBeDefined();
+        expect(options.tools).toHaveLength(1);
+        expect(options.tools[0]).toEqual({
+          name: 'list-files',
+          description: 'List files in a directory',
+          input_schema: {
+            type: 'object',
+            properties: {
+              path: { type: 'string' },
+            },
+            required: [],
+          },
+        });
+
+        return {
+          id: 'test-id',
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: 'I will help you list files.',
+            },
+          ],
+        };
+      });
+
+      // Execute test
+      await sessionManager.sendMessage(session.id, 'List files in /tmp');
+
+      // Verify mock was called with tools
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tools: expect.arrayContaining([
+            expect.objectContaining({
+              name: 'list-files',
+              description: 'List files in a directory',
+              input_schema: expect.any(Object),
+            }),
+          ]),
+        })
+      );
+    });
+
+    it('should format and include tools in streaming messages', async () => {
+      // Setup
+      const session = await sessionManager.initializeSession(validConfig);
+      session.mcpClient = mockMCPClient;
+      session.tools = [
+        {
+          name: 'list-files',
+          description: 'List files in a directory',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string' },
+            },
+          },
+        },
+      ];
+
+      // Reset mock for streaming test
+      mockCreate.mockReset();
+      mockCreate.mockImplementation(options => {
+        // Verify tools are formatted correctly
+        expect(options.tools).toBeDefined();
+        expect(options.tools).toHaveLength(1);
+        expect(options.tools[0]).toEqual({
+          name: 'list-files',
+          description: 'List files in a directory',
+          input_schema: {
+            type: 'object',
+            properties: {
+              path: { type: 'string' },
+            },
+            required: [],
+          },
+        });
+
+        return {
+          [Symbol.asyncIterator]: async function* () {
+            yield {
+              type: 'content_block_delta',
+              delta: {
+                type: 'text_delta',
+                text: 'I will help you list files.',
+              },
+            };
+          },
+        };
+      });
+
+      // Execute test
+      const messageStream = sessionManager.sendMessageStream(
+        session.id,
+        'List files in /tmp'
+      );
+
+      // Collect all streamed content
+      const streamedContent: string[] = [];
+      for await (const chunk of messageStream) {
+        if (chunk.type === 'content' && chunk.content) {
+          streamedContent.push(chunk.content);
+        }
+      }
+
+      // Verify mock was called with tools
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tools: expect.arrayContaining([
+            expect.objectContaining({
+              name: 'list-files',
+              description: 'List files in a directory',
+              input_schema: expect.any(Object),
+            }),
+          ]),
+          stream: true,
+        })
+      );
+
+      // Verify streamed content
+      expect(streamedContent).toEqual(['I will help you list files.']);
     });
   });
 });

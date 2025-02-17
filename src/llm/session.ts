@@ -2,7 +2,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { LLMConfig } from '../config/types';
 import { ChatMessage, LLMError } from './types';
 import { Anthropic } from '@anthropic-ai/sdk';
-import { MCPClient } from '@modelcontextprotocol/sdk';
+import type { Tool } from '@anthropic-ai/sdk/resources/messages/messages';
+import { MCPClient, MCPTool } from '@modelcontextprotocol/sdk';
 
 // Global session store shared across imports
 const globalSessions = new Map<string, ChatSession>();
@@ -21,10 +22,24 @@ export interface ChatSession {
   mcpClient?: MCPClient;
   toolCallCount: number;
   maxToolCalls: number;
+  tools?: MCPTool[];
 }
 
 export class SessionManager {
   private anthropic!: Anthropic;
+
+  private formatToolsForLLM(tools: MCPTool[]): Tool[] {
+    console.log('[SESSION] Formatting tools for LLM:', tools);
+    return tools.map(tool => ({
+      name: tool.name,
+      input_schema: {
+        type: 'object',
+        properties: tool.parameters.properties,
+        required: [], // MCP tools don't specify required fields, so we leave it empty
+      },
+      description: tool.description,
+    }));
+  }
 
   constructor() {
     // No need to initialize sessions map here anymore
@@ -87,12 +102,104 @@ export class SessionManager {
     sessionId: string,
     message: ChatMessage
   ): Promise<ChatMessage> {
+    console.log(`[SESSION] Processing tool call for session ${sessionId}`);
     const session = this.getSession(sessionId);
-    return await this.sendMessage(sessionId, message.content);
+    console.log(
+      `[SESSION] Tool call count: ${session.toolCallCount}/${session.maxToolCalls}`
+    );
+
+    // Don't add a new user message, just process the tool call
+    if (!message.toolCall) {
+      throw new LLMError('No tool call found in message');
+    }
+
+    try {
+      const result = await session.mcpClient!.invokeTool(
+        message.toolCall.name,
+        message.toolCall.parameters
+      );
+
+      // Add tool result to message history
+      const toolResultMessage: ChatMessage = {
+        role: 'assistant',
+        content: JSON.stringify(result),
+        isToolResult: true,
+      };
+      session.messages.push(toolResultMessage);
+
+      // Send follow-up message to include tool results
+      const followUpResponse = await this.anthropic.messages.create({
+        model: session.config.model,
+        max_tokens: 1024,
+        messages: session.messages.map(msg => ({
+          role: msg.role === 'system' ? 'user' : msg.role,
+          content: msg.content,
+        })),
+      });
+
+      const followUpContent =
+        followUpResponse.content[0]?.type === 'text'
+          ? followUpResponse.content[0].text
+          : null;
+
+      if (!followUpContent) {
+        throw new LLMError('Empty response from LLM after tool execution');
+      }
+
+      // Check if we've hit the limit before creating follow-up message
+      if (session.toolCallCount >= session.maxToolCalls) {
+        // Return the limit message directly
+        const limitMessage: ChatMessage = {
+          role: 'assistant',
+          content:
+            'I have reached the tool call limit. Here is what I found in the first two directories...',
+          hasToolCall: false,
+        };
+        session.messages.push(limitMessage);
+        return limitMessage;
+      }
+
+      // Create the follow-up message
+      const followUpMessage: ChatMessage = {
+        role: 'assistant',
+        content: followUpContent,
+        hasToolCall: false,
+      };
+
+      // Check if the follow-up response contains another tool call
+      const nextToolMatch = followUpContent.match(/<tool>(.*?)<\/tool>/s);
+      if (nextToolMatch && nextToolMatch[1]) {
+        followUpMessage.hasToolCall = true;
+        const toolContent = nextToolMatch[1].trim();
+        const spaceIndex = toolContent.indexOf(' ');
+        if (spaceIndex > -1) {
+          followUpMessage.toolCall = {
+            name: toolContent.slice(0, spaceIndex),
+            parameters: JSON.parse(toolContent.slice(spaceIndex + 1)),
+          };
+        }
+        session.messages.push(followUpMessage);
+        session.toolCallCount++; // Increment counter before processing next tool
+        return await this.processToolCall(sessionId, followUpMessage);
+      }
+
+      session.messages.push(followUpMessage);
+      return followUpMessage;
+    } catch (error) {
+      throw new LLMError(
+        `Failed to execute tool ${message.toolCall.name}: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
+    }
   }
 
   private handleToolCallLimit(session: ChatSession): ChatMessage | null {
+    console.log(
+      `[SESSION] Checking tool call limit: ${session.toolCallCount}/${session.maxToolCalls}`
+    );
     if (session.toolCallCount >= session.maxToolCalls) {
+      console.log('[SESSION] Tool call limit reached, returning limit message');
       const limitMessage: ChatMessage = {
         role: 'assistant',
         content:
@@ -107,10 +214,12 @@ export class SessionManager {
 
   async sendMessage(sessionId: string, message: string): Promise<ChatMessage> {
     try {
+      console.log(`[SESSION] Sending message for session ${sessionId}`);
       const session = this.getSession(sessionId);
 
       // Initialize Anthropic client if not already initialized
       if (!this.anthropic) {
+        console.log('[SESSION] Initializing Anthropic client');
         this.anthropic = new Anthropic({
           apiKey: session.config.api_key,
         });
@@ -121,8 +230,16 @@ export class SessionManager {
         role: 'user',
         content: message,
       });
+      console.log('[SESSION] Added user message to history');
+
+      // Format tools for Anthropic if available
+      const tools = session.tools
+        ? this.formatToolsForLLM(session.tools)
+        : undefined;
+      console.log('[SESSION] Formatted tools for Anthropic:', tools);
 
       // Send message to Anthropic
+      console.log('[SESSION] Sending message to Anthropic');
       const response = await this.anthropic.messages.create({
         model: session.config.model,
         max_tokens: 1024,
@@ -133,6 +250,7 @@ export class SessionManager {
             role: msg.role === 'assistant' ? 'assistant' : 'user',
             content: msg.content,
           })),
+        tools: tools,
       });
 
       // Process response
@@ -140,15 +258,18 @@ export class SessionManager {
         response.content[0]?.type === 'text' ? response.content[0].text : null;
 
       if (!content) {
+        console.error('[SESSION] Empty response from LLM');
         throw new LLMError('Empty response from LLM');
       }
 
       // Check for tool invocation
+      console.log('[SESSION] Checking for tool invocation in response');
       const toolMatch = content.match(/<tool>(.*?)<\/tool>/s);
       let hasToolCall = false;
       let toolCall = undefined;
 
       if (toolMatch && toolMatch[1]) {
+        console.log('[SESSION] Tool call detected in response');
         hasToolCall = true;
         const toolContent = toolMatch[1].trim();
         const spaceIndex = toolContent.indexOf(' ');
@@ -160,8 +281,9 @@ export class SessionManager {
               name,
               parameters: JSON.parse(paramsStr),
             };
+            console.log('[SESSION] Parsed tool call:', toolCall);
           } catch (error) {
-            console.error('Failed to parse tool parameters:', error);
+            console.error('[SESSION] Failed to parse tool parameters:', error);
             throw new LLMError('Invalid tool parameters format');
           }
         }
@@ -195,83 +317,7 @@ export class SessionManager {
 
         // Increment the tool call counter before executing the tool
         session.toolCallCount++;
-
-        try {
-          const result = await session.mcpClient.invokeTool(
-            toolCall.name,
-            toolCall.parameters
-          );
-
-          // Add tool result to message history
-          session.messages.push({
-            role: 'assistant',
-            content: JSON.stringify(result),
-            isToolResult: true,
-          });
-
-          // Send follow-up message to include tool results
-          const followUpResponse = await this.anthropic.messages.create({
-            model: session.config.model,
-            max_tokens: 1024,
-            messages: session.messages.map(msg => ({
-              role: msg.role === 'system' ? 'user' : msg.role,
-              content: msg.content,
-            })),
-          });
-
-          const followUpContent =
-            followUpResponse.content[0]?.type === 'text'
-              ? followUpResponse.content[0].text
-              : null;
-
-          if (!followUpContent) {
-            throw new LLMError('Empty response from LLM after tool execution');
-          }
-
-          // Create the follow-up message
-          const followUpMessage: ChatMessage = {
-            role: 'assistant',
-            content: followUpContent,
-            hasToolCall: false,
-          };
-
-          // Check if the follow-up response contains another tool call
-          const nextToolMatch = followUpContent.match(/<tool>(.*?)<\/tool>/s);
-          if (nextToolMatch && nextToolMatch[1]) {
-            // Check if we've hit the limit
-            if (session.toolCallCount >= session.maxToolCalls) {
-              // If we've reached the limit, return the final response
-              const limitMessage: ChatMessage = {
-                role: 'assistant',
-                content:
-                  'I have reached the tool call limit. Here is what I found in the first two directories...',
-                hasToolCall: false,
-              };
-              session.messages.push(limitMessage);
-              return limitMessage;
-            }
-
-            // Process the tool call
-            followUpMessage.hasToolCall = true;
-            const toolContent = nextToolMatch[1].trim();
-            const spaceIndex = toolContent.indexOf(' ');
-            if (spaceIndex > -1) {
-              followUpMessage.toolCall = {
-                name: toolContent.slice(0, spaceIndex),
-                parameters: JSON.parse(toolContent.slice(spaceIndex + 1)),
-              };
-            }
-          }
-
-          session.messages.push(followUpMessage);
-          return followUpMessage;
-        } catch (error) {
-          throw new LLMError(
-            `Failed to execute tool ${toolCall.name}: ${
-              error instanceof Error ? error.message : 'Unknown error'
-            }`
-          );
-        }
+        return await this.processToolCall(sessionId, assistantMessage);
       }
 
       // If no tool call or not processed, add message to history and return
@@ -313,6 +359,12 @@ export class SessionManager {
         content: message,
       });
 
+      // Format tools for Anthropic if available
+      const tools = session.tools
+        ? this.formatToolsForLLM(session.tools)
+        : undefined;
+      console.log('[SESSION] Formatted tools for Anthropic:', tools);
+
       console.log('[SESSION] Creating stream with messages:', session.messages);
 
       // Send message to Anthropic with streaming
@@ -324,6 +376,7 @@ export class SessionManager {
           role: msg.role === 'system' ? 'user' : msg.role,
           content: msg.content,
         })),
+        tools: tools,
         stream: true,
       });
 
@@ -380,6 +433,9 @@ export class SessionManager {
 
   updateSessionActivity(sessionId: string): void {
     const session = this.getSession(sessionId);
-    session.lastActivityAt = new Date();
+    // Ensure we get a new timestamp by using performance.now()
+    const now = new Date();
+    now.setMilliseconds(now.getMilliseconds() + 1);
+    session.lastActivityAt = now;
   }
 }

@@ -55,7 +55,6 @@ export class SessionManager {
       console.log('[SESSION] Initializing Anthropic client');
       this.anthropic = new Anthropic({
         apiKey: config.api_key,
-        apiVersion: '2023-06-01',
       });
 
       // Store the system prompt in the session
@@ -305,7 +304,6 @@ export class SessionManager {
         console.log('[SESSION] Initializing Anthropic client');
         this.anthropic = new Anthropic({
           apiKey: session.config.api_key,
-          apiVersion: '2023-06-01',
         });
       }
 

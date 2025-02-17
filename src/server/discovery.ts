@@ -21,22 +21,48 @@ export class ServerDiscovery {
       let resourcesData: any;
 
       // Listen for tool and resource data on stdout
-      process.stdout?.on('data', (data: Buffer) => {
+      if (!process.stdout) {
+        reject(new Error(`Server ${serverName} has no stdout`));
+        return;
+      }
+
+      if (!process.stdin) {
+        reject(new Error(`Server ${serverName} has no stdin`));
+        return;
+      }
+
+      const stdin = process.stdin;
+
+      // Log raw stdout for debugging
+      process.stdout.on('data', (data: Buffer) => {
+        console.log(
+          `[DISCOVERY] Raw stdout from ${serverName}:`,
+          data.toString()
+        );
         try {
           const message = JSON.parse(data.toString());
           console.log(
-            `[DISCOVERY] Received message from ${serverName}:`,
+            `[DISCOVERY] Parsed message from ${serverName}:`,
             message
           );
 
           if (message.type === 'tools') {
             toolsData = message.data;
+            console.log(
+              `[DISCOVERY] Received tools from ${serverName}:`,
+              toolsData
+            );
           } else if (message.type === 'resources') {
             resourcesData = message.data;
+            console.log(
+              `[DISCOVERY] Received resources from ${serverName}:`,
+              resourcesData
+            );
           }
 
           // If we have both tools and resources, resolve
           if (toolsData && resourcesData) {
+            console.log(`[DISCOVERY] Resolving capabilities for ${serverName}`);
             resolve({
               tools: toolsData.tools || [],
               resources: resourcesData.resources || [],
@@ -45,16 +71,23 @@ export class ServerDiscovery {
         } catch (error) {
           console.error(
             `[DISCOVERY] Error parsing message from ${serverName}:`,
-            error
+            error,
+            'Raw data:',
+            data.toString()
           );
         }
       });
 
-      // Send discovery requests
-      process.stdin?.write(JSON.stringify({ command: 'list_tools' }) + '\n');
-      process.stdin?.write(
-        JSON.stringify({ command: 'list_resources' }) + '\n'
-      );
+      // Send discovery requests with a small delay to ensure handlers are set up
+      setTimeout(() => {
+        console.log(`[DISCOVERY] Sending list_tools command to ${serverName}`);
+        stdin.write(JSON.stringify({ command: 'list_tools' }) + '\n');
+
+        console.log(
+          `[DISCOVERY] Sending list_resources command to ${serverName}`
+        );
+        stdin.write(JSON.stringify({ command: 'list_resources' }) + '\n');
+      }, 100);
 
       // Set timeout
       setTimeout(() => {

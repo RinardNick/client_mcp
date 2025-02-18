@@ -43,10 +43,10 @@ export class ServerExitError extends ServerError {
 
 export class ServerLauncher {
   private servers: Map<string, ChildProcess> = new Map();
-  private readonly launchTimeout = 5000; // 5 seconds
-  private readonly healthCheckTimeout = 5000; // 5 seconds
+  private readonly launchTimeout = 15000; // 15 seconds
+  private readonly healthCheckTimeout = 10000; // 10 seconds
   private readonly healthCheckRetries = 3;
-  private readonly healthCheckInterval = 1000; // 1 second
+  private readonly healthCheckInterval = 2000; // 2 seconds
 
   async launchServer(
     serverName: string,
@@ -110,13 +110,19 @@ export class ServerLauncher {
       let isReady = false;
       let timeoutId: NodeJS.Timeout;
 
+      console.log(
+        `[LAUNCHER] Waiting for server ${serverName} to be ready (timeout: ${this.launchTimeout}ms)`
+      );
+
       // Handle server ready message
       serverProcess.stderr?.on('data', (data: Buffer) => {
         const message = data.toString();
+        console.log(`[LAUNCHER] Server ${serverName} stderr:`, message);
         if (
           message.includes('running on stdio') ||
           message.includes('Allowed directories:')
         ) {
+          console.log(`[LAUNCHER] Server ${serverName} is ready`);
           isReady = true;
           clearTimeout(timeoutId);
           resolve();

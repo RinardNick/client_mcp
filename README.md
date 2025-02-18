@@ -2,87 +2,166 @@
 
 A TypeScript implementation of a Model Context Protocol (MCP) client that manages LLM chat interactions, server lifecycle, and tool invocations through MCP servers.
 
-## Features
+## Overview
 
-- Complete configuration management and validation
-- LLM session initialization and management
-- Server lifecycle management (launch, health checks, shutdown)
-- Tool capability discovery and invocation
-- Tool call limit enforcement
-- Streaming conversation responses
-- Error handling and recovery
-- Express middleware for easy integration
+The TS-MCP-Client serves as the core orchestration layer in the Model Context Protocol architecture, managing all session state, server lifecycle, and LLM interactions. It acts as the bridge between a host application (like a web interface) and the underlying MCP servers that provide tool capabilities.
 
-## Core Responsibilities
+### System Architecture
 
-The MCP client handles several key responsibilities in the MCP architecture:
+```mermaid
+graph TD
+    H[Host Application] --> |Sends Messages| C[TS-MCP-Client]
+    C --> |Manages Sessions| S[Session Store]
+    C --> |Launches & Monitors| M[MCP Servers]
+    C --> |Coordinates| L[LLM/Anthropic]
+    M --> |Provides Tools| C
+    L --> |Tool Decisions| C
+    C --> |Streaming Updates| H
 
-1. **Configuration Management**
+    subgraph Client Responsibilities
+        S --> |State Management| SM[Session Manager]
+        SM --> |Tool Execution| TE[Tool Engine]
+        TE --> |Server Communication| SC[Server Controller]
+        SC --> |Health Monitoring| HM[Health Monitor]
+    end
 
-   - Loads and validates configuration files
-   - Enforces required fields (llm, max_tool_calls, servers)
-   - Validates server configurations
-   - Example:
+    style H fill:#f9f,stroke:#333,stroke-width:2px
+    style C fill:#bbf,stroke:#333,stroke-width:4px
+    style M fill:#bfb,stroke:#333,stroke-width:2px
+    style L fill:#fbf,stroke:#333,stroke-width:2px
+```
 
-   ```typescript
-   interface MCPConfig {
-     llm: LLMConfig;
-     max_tool_calls: number; // Required: Maximum number of tool calls per session
-     servers: Record<string, ServerConfig>; // Required: Server configurations
-   }
-   ```
+### Key Responsibilities
 
-2. **Server Management**
+<details>
+<summary>🔄 Session & State Management</summary>
 
-   - Launches MCP servers based on configuration
-   - Performs health checks
-   - Manages server lifecycle
-   - Discovers and caches tool capabilities
-   - Example:
+- Manages all session state and lifecycle
+- Handles session persistence and recovery
+- Tracks session activity and expiry
+- Maintains conversation history
+</details>
 
-   ```typescript
-   interface ServerConfig {
-     command: string; // Required: Command to launch the server
-     args?: string[]; // Optional: Command line arguments
-     env?: Record<string, string>; // Optional: Environment variables
-   }
-   ```
+<details>
+<summary>🤖 LLM Integration</summary>
 
-3. **Tool Invocation**
+- Coordinates all LLM interactions
+- Implements tool detection and execution
+- Enforces tool call limits
+- Provides streaming updates of operations
+</details>
 
-   - Detects tool calls in LLM responses
-   - Routes tool calls to appropriate servers
-   - Enforces tool call limits
-   - Handles tool execution errors
-   - Integrates tool results back into conversations
+<details>
+<summary>🛠️ Server Management</summary>
 
-4. **Session Management**
-   - Initializes and maintains chat sessions
-   - Tracks conversation history
-   - Manages tool call limits per session
-   - Handles session cleanup
+- Manages server lifecycle (launch, health, shutdown)
+- Maintains server capabilities registry
+- Implements MCP protocol for tool interactions
+- Caches tool capabilities for reuse
+</details>
 
-## Installation
+<details>
+<summary>🔍 Error Handling & Recovery</summary>
+
+- Handles error recovery and retries
+- Provides comprehensive error tracking
+- Implements automatic recovery mechanisms
+- Ensures graceful degradation
+</details>
+
+## Quick Start
 
 ```bash
 npm install @rinardnick/ts-mcp-client
 ```
 
-## Usage in Next.js
+```typescript
+import { SessionManager, loadConfig } from '@rinardnick/ts-mcp-client';
 
-### 1. Configuration Setup
+// 1. Load configuration
+const config = await loadConfig('config.json');
 
-Create a `config.json` file in your project root:
+// 2. Initialize session
+const sessionManager = new SessionManager();
+const session = await sessionManager.initializeSession(config);
+
+// 3. Start chatting!
+const response = await sessionManager.sendMessage(
+  session.id,
+  'What files are in the current directory?'
+);
+```
+
+## API Reference
+
+### Session Management
+
+<details>
+<summary>Initialize Session</summary>
+
+```typescript
+const sessionManager = new SessionManager();
+const session = await sessionManager.initializeSession(config: LLMConfig);
+```
+
+The `LLMConfig` interface:
+
+```typescript
+interface LLMConfig {
+  type: string; // LLM type (e.g., 'claude')
+  api_key: string; // API key for the LLM
+  model: string; // Model identifier
+  system_prompt: string; // System prompt for the session
+  servers?: {
+    // Optional server configurations
+    [key: string]: {
+      command: string; // Server launch command
+      args: string[]; // Command arguments
+      env: Record<string, string>; // Environment variables
+    };
+  };
+}
+```
+
+</details>
+
+<details>
+<summary>Send Messages</summary>
+
+```typescript
+// Regular message sending
+const response = await sessionManager.sendMessage(
+  sessionId: string,
+  message: string
+): Promise<ChatMessage>;
+
+// Streaming message sending
+const stream = sessionManager.sendMessageStream(
+  sessionId: string,
+  message: string
+): AsyncGenerator<{
+  type: string;
+  content?: string;
+  error?: string;
+}>;
+```
+
+</details>
+
+### Configuration
+
+<details>
+<summary>Configuration File Structure</summary>
 
 ```json
 {
   "llm": {
     "type": "claude",
+    "api_key": "YOUR_API_KEY_HERE",
     "model": "claude-3-5-sonnet-20241022",
-    "apiKey": "YOUR_API_KEY_HERE",
-    "systemPrompt": "You are a helpful assistant."
+    "system_prompt": "You are a helpful assistant."
   },
-  "max_tool_calls": 10,
+  "max_tool_calls": 3,
   "servers": {
     "filesystem": {
       "command": "npx",
@@ -102,273 +181,385 @@ Create a `config.json` file in your project root:
 }
 ```
 
-### 2. API Route Setup
+</details>
 
-Create a new API route in your Next.js project (e.g., `pages/api/chat/[[...params]].ts`):
+## Usage Examples
+
+<details>
+<summary>Basic Usage</summary>
 
 ```typescript
-import { SessionManager, LLMConfig } from '@rinardnick/ts-mcp-client';
-import { NextRequest, NextResponse } from 'next/server';
-import { loadConfig } from '@rinardnick/ts-mcp-client';
+import { SessionManager, loadConfig } from '@rinardnick/ts-mcp-client';
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+// Initialize
+const config = await loadConfig('config.json');
+const sessionManager = new SessionManager();
+const session = await sessionManager.initializeSession(config);
 
-let sessionManager: SessionManager;
+// Send a message
+const response = await sessionManager.sendMessage(
+  session.id,
+  'What files are in the current directory?'
+);
+```
 
-async function initializeIfNeeded() {
-  if (!sessionManager) {
-    try {
-      // Load and validate configuration
-      const config = await loadConfig('config.json');
+</details>
 
-      // Create session manager
-      sessionManager = new SessionManager();
+<details>
+<summary>Streaming Example</summary>
 
-      // Initialize session with LLM config and server setup
-      const session = await sessionManager.initializeSession(
-        config.llm,
-        config.servers,
-        config.max_tool_calls
-      );
+```typescript
+// Stream responses
+const stream = sessionManager.sendMessageStream(
+  session.id,
+  'What files are in the current directory?'
+);
 
-      console.log('[INIT] Session manager initialized successfully');
-      if (session.mcpClient) {
-        console.log('[INIT] Available tools:', session.mcpClient.tools);
-      }
-    } catch (error) {
-      console.error('[INIT] Failed to initialize:', error);
-      throw error;
-    }
+for await (const chunk of stream) {
+  switch (chunk.type) {
+    case 'content':
+      console.log('Content:', chunk.content);
+      break;
+    case 'tool_start':
+      console.log('Tool starting:', chunk.content);
+      break;
+    case 'tool_result':
+      console.log('Tool result:', chunk.content);
+      break;
+    case 'error':
+      console.error('Error:', chunk.error);
+      break;
+    case 'done':
+      console.log('Stream complete');
+      break;
   }
 }
-
-export async function POST(request: NextRequest) {
-  await initializeIfNeeded();
-  // ... rest of your route handler
-}
 ```
 
-### 3. Frontend Implementation
+Stream response types:
 
-Create a chat component (e.g., `components/Chat.tsx`):
+- `thinking`: LLM's intermediate thoughts/planning
+- `tool_start`: When a tool is about to be executed
+- `tool_result`: The result from a tool execution
+- `content`: The final formatted response
+- `error`: Any error messages
+- `done`: Stream completion marker
+</details>
+
+## Implementation Notes
+
+### 🔄 Session Lifecycle Management
+
+<details>
+<summary>Session States & Transitions</summary>
 
 ```typescript
-import { useState, useEffect } from 'react';
-import { LLMConfig } from '@rinardnick/ts-mcp-client';
+// 1. Session Initialization
+const session = await sessionManager.initializeSession({
+  type: 'claude',
+  api_key: process.env.ANTHROPIC_API_KEY,
+  model: 'claude-3-sonnet-20240229',
+  system_prompt: 'You are a helpful assistant.',
+  servers: {
+    // Server configurations
+  },
+});
 
-export function Chat() {
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<
-    Array<{ role: string; content: string }>
-  >([]);
-  const [input, setInput] = useState('');
+// 2. Session Recovery
+const existingSession = sessionManager.getSession(sessionId);
+if (existingSession.lastActivityAt < Date.now() - 30 * 60 * 1000) {
+  // Session expired, reinitialize
+  await sessionManager.initializeSession(config);
+}
 
-  // Initialize chat session
-  useEffect(() => {
-    const config: LLMConfig = {
-      type: 'claude',
-      api_key: process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY!,
-      system_prompt: 'You are a helpful assistant.',
-      model: 'claude-3-5-sonnet-20241022',
-    };
+// 3. Session Cleanup
+// Implement in your application shutdown
+process.on('SIGTERM', async () => {
+  await sessionManager.cleanup();
+});
+```
 
-    fetch('/api/chat/session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ config }),
-    })
-      .then(res => res.json())
-      .then(({ sessionId }) => setSessionId(sessionId));
-  }, []);
+- Sessions automatically expire after 30 minutes of inactivity
+- Server processes are terminated when sessions are cleaned up
+- Tool capabilities are cached per session
+</details>
 
-  // Send message and handle streaming response
-  const sendMessage = async (message: string) => {
-    if (!sessionId) return;
+### 🛠️ Tool Integration
 
-    // Add user message to chat
-    setMessages(prev => [...prev, { role: 'user', content: message }]);
-    setInput('');
+<details>
+<summary>Custom Tool Implementation</summary>
 
-    // Set up SSE connection
-    const eventSource = new EventSource(
-      `/api/chat/session/${sessionId}/stream?message=${encodeURIComponent(
-        message
-      )}`
-    );
-    let assistantMessage = '';
+```typescript
+// 1. Define Tool Schema
+const customTool = {
+  name: 'custom-tool',
+  description: 'Performs a custom operation',
+  parameters: {
+    properties: {
+      input: {
+        type: 'string',
+        description: 'Input for the custom operation',
+      },
+    },
+    required: ['input'],
+  },
+};
 
-    eventSource.onmessage = event => {
-      const data = JSON.parse(event.data);
+// 2. Implement Tool Handler
+const handleCustomTool = async (params: any) => {
+  // Tool implementation
+  return { result: `Processed: ${params.input}` };
+};
 
-      if (data.type === 'content') {
-        assistantMessage += data.content;
-        setMessages(prev => {
-          const newMessages = [...prev];
-          const lastMessage = newMessages[newMessages.length - 1];
+// 3. Register with MCP Server
+const server = new MCPServer({
+  tools: [customTool],
+  handlers: {
+    'custom-tool': handleCustomTool,
+  },
+});
+```
 
-          if (lastMessage?.role === 'assistant') {
-            lastMessage.content = assistantMessage;
-          } else {
-            newMessages.push({ role: 'assistant', content: assistantMessage });
-          }
+- Tools must follow the MCP protocol specification
+- Parameters should be strictly typed
+- Include comprehensive error handling
+</details>
 
-          return newMessages;
-        });
-      } else if (data.type === 'done') {
-        eventSource.close();
-      } else if (data.type === 'error') {
-        console.error('Error:', data.error);
-        eventSource.close();
-      }
-    };
+### 🔀 Stream Processing
 
-    eventSource.onerror = () => {
-      eventSource.close();
-    };
-  };
+<details>
+<summary>Advanced Stream Handling</summary>
 
-  return (
-    <div className="chat-container">
-      <div className="messages">
-        {messages.map((msg, i) => (
-          <div key={i} className={`message ${msg.role}`}>
-            {msg.content}
-          </div>
-        ))}
-      </div>
-      <div className="input-container">
-        <input
-          type="text"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyPress={e => e.key === 'Enter' && sendMessage(input)}
-          placeholder="Type your message..."
-        />
-        <button onClick={() => sendMessage(input)}>Send</button>
-      </div>
-    </div>
-  );
+```typescript
+// 1. Custom Stream Processing
+const processStream = async (sessionId: string, message: string) => {
+  const stream = sessionManager.sendMessageStream(sessionId, message);
+  let toolResult = null;
+
+  for await (const chunk of stream) {
+    switch (chunk.type) {
+      case 'thinking':
+        // Handle intermediate thoughts
+        break;
+      case 'tool_start':
+        // Track tool execution start
+        break;
+      case 'tool_result':
+        toolResult = chunk.content;
+        // Process tool results
+        break;
+      case 'content':
+        if (toolResult) {
+          // Combine tool results with content
+        }
+        // Process final content
+        break;
+    }
+  }
+};
+
+// 2. Error Recovery in Streams
+try {
+  for await (const chunk of stream) {
+    if (chunk.type === 'error') {
+      // Implement retry logic
+      await handleStreamError(chunk.error);
+      continue;
+    }
+    // Process chunk
+  }
+} catch (error) {
+  // Handle stream interruption
+  await recoverSession(sessionId);
 }
 ```
 
-## Client Architecture
+- Implement backoff strategies for retries
+- Cache intermediate results for recovery
+- Handle stream interruptions gracefully
+</details>
 
-The client follows a clear separation of responsibilities:
+### 🔒 Security Considerations
 
-1. **Configuration Layer**
+<details>
+<summary>Security Best Practices</summary>
 
-   - Validates all configuration before use
-   - Ensures required fields are present
-   - Type-checks all values
-   - Provides helpful error messages
+```typescript
+// 1. API Key Management
+const config = {
+  type: 'claude',
+  api_key: process.env.ANTHROPIC_API_KEY, // Never hardcode
+  // ...
+};
 
-2. **Server Management Layer**
+// 2. Server Process Isolation
+const serverConfig = {
+  command: 'npx',
+  args: [
+    '@modelcontextprotocol/server-filesystem',
+    '/restricted/path', // Restrict access
+  ],
+  env: {
+    NODE_ENV: 'production',
+    // Limit environment variables
+  },
+};
 
-   - Handles server lifecycle
-   - Performs health checks
-   - Discovers tool capabilities
-   - Manages server errors and recovery
+// 3. Tool Access Control
+const validateToolAccess = (tool: string, user: User) => {
+  const allowedTools = getAllowedTools(user.role);
+  return allowedTools.includes(tool);
+};
+```
 
-3. **Session Management Layer**
+- Implement rate limiting for tool calls
+- Validate all tool inputs
+- Monitor server resource usage
+- Implement audit logging
+</details>
 
-   - Tracks active sessions
-   - Manages conversation history
-   - Enforces tool call limits
-   - Handles cleanup
+### 📊 Performance Optimization
 
-4. **Tool Invocation Layer**
-   - Detects tool calls in LLM responses
-   - Routes calls to appropriate servers
-   - Handles tool execution
-   - Integrates results into conversations
+<details>
+<summary>Performance Tips</summary>
+
+```typescript
+// 1. Tool Result Caching
+const cache = new Map<string, any>();
+const getCachedResult = (toolName: string, params: any) => {
+  const key = `${toolName}:${JSON.stringify(params)}`;
+  return cache.get(key);
+};
+
+// 2. Batch Processing
+const batchMessages = async (messages: string[]) => {
+  const sessions = new Map<string, string[]>();
+  // Group messages by session
+  // Process in batches
+};
+
+// 3. Resource Management
+const optimizeResources = {
+  maxSessions: 100,
+  toolTimeout: 5000,
+  maxConcurrent: 10,
+};
+```
+
+- Implement connection pooling
+- Use appropriate timeout values
+- Monitor memory usage
+- Implement circuit breakers
+</details>
+
+### 🔍 Debugging & Monitoring
+
+<details>
+<summary>Debugging Tools</summary>
+
+```typescript
+// 1. Session Debugging
+const debugSession = (sessionId: string) => {
+  const session = sessionManager.getSession(sessionId);
+  console.log({
+    toolCalls: session.toolCallCount,
+    lastActivity: session.lastActivityAt,
+    messageCount: session.messages.length,
+  });
+};
+
+// 2. Tool Execution Monitoring
+const monitorTool = async (name: string, params: any) => {
+  const startTime = Date.now();
+  try {
+    const result = await executeTool(name, params);
+    metrics.recordToolExecution(name, Date.now() - startTime);
+    return result;
+  } catch (error) {
+    metrics.recordToolError(name, error);
+    throw error;
+  }
+};
+```
+
+- Implement comprehensive logging
+- Add performance metrics
+- Monitor server health
+- Track tool usage patterns
+</details>
 
 ## Best Practices
 
-1. **Configuration Management**
+### 🔐 Configuration Management
 
-   - Always use `loadConfig` to load and validate configuration
-   - Include all required fields (llm, max_tool_calls, servers)
-   - Provide clear server configurations
+- Always validate configurations before initialization
+- Store sensitive information (API keys) securely
+- Use environment variables for dynamic configuration
 
-2. **Server Management**
+### 📡 Session Management
 
-   - Let the client handle server lifecycle
-   - Don't interact with servers directly
-   - Use the client's API for all tool interactions
+- Initialize one session per user/conversation
+- Clean up sessions when they're no longer needed
+- Monitor tool call limits
 
-3. **Session Management**
+### ⚠️ Error Handling
 
-   - Initialize sessions through the SessionManager
-   - Let the client track tool call limits
-   - Use the streaming API for real-time updates
+- Implement proper error handling for all async operations
+- Log errors appropriately
+- Provide user-friendly error messages
 
-4. **Error Handling**
-   - Handle configuration errors during startup
-   - Implement proper error recovery in UI
-   - Use the client's error types for specific handling
+### 🔄 Resource Management
 
-## Development
+- Clean up server processes when done
+- Monitor server health
+- Implement proper error recovery
 
-```bash
-# Install dependencies
-npm install
+## Contributing
 
-# Run tests
-npm test
-
-# Build the package
-npm run build
-```
-
-## API Reference
-
-### Configuration Types
-
-```typescript
-interface LLMConfig {
-  type: string;
-  api_key: string;
-  system_prompt: string;
-  model: string;
-}
-
-interface ServerConfig {
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-}
-
-interface MCPConfig {
-  llm: LLMConfig;
-  max_tool_calls: number;
-  servers: Record<string, ServerConfig>;
-}
-```
-
-### Session Management
-
-```typescript
-class SessionManager {
-  async initializeSession(
-    config: LLMConfig,
-    servers?: Record<string, ServerConfig>,
-    maxToolCalls?: number
-  ): Promise<ChatSession>;
-
-  async sendMessage(sessionId: string, message: string): Promise<any>;
-
-  async *sendMessageStream(sessionId: string, message: string): AsyncGenerator;
-}
-```
-
-### Error Types
-
-```typescript
-class ConfigurationError extends Error {}
-class LLMError extends Error {}
-```
+Contributions are welcome! Please read our contributing guidelines and submit pull requests to our GitHub repository.
 
 ## License
 
-ISC
+This project is licensed under the GNU Affero General Public License version 3 (AGPL-3.0) with Commons Clause.
+
+### AGPL-3.0
+
+The GNU Affero General Public License is a free, copyleft license that requires:
+
+- Source code must be made available when the software is provided over a network
+- All modifications must be released under the same license
+- Clear attribution and license notices must be kept
+
+### Commons Clause
+
+The Commons Clause adds restrictions on top of AGPL-3.0, specifically:
+"The Software is provided to you by the Licensor under the License, as defined below, subject to the following condition: Without limiting other conditions in the License, the grant of rights under the License will not include, and the License does not grant to you, the right to Sell the Software."
+
+Where "Sell" means:
+
+- Selling, licensing, or distributing the Software for a fee
+- Using the Software to provide commercial services
+- Using the Software as a part of a commercial product or service
+
+### Permitted Uses
+
+- Research and development
+- Personal projects
+- Non-commercial applications
+- Educational purposes
+
+### Prohibited Uses
+
+- Commercial applications
+- Selling services that include the software
+- Including in commercial products
+- Offering as a hosted/SaaS solution
+
+For the complete license text, see:
+
+- [GNU AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.en.html)
+- [Commons Clause](https://commonsclause.com/)
+
+## Support
+
+For issues and feature requests, please use the GitHub issue tracker.

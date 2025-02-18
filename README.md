@@ -261,231 +261,158 @@ const session = await sessionManager.initializeSession({
   model: 'claude-3-sonnet-20240229',
   system_prompt: 'You are a helpful assistant.',
   servers: {
-    // Server configurations
+    filesystem: {
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/workspace'],
+      env: {},
+    },
   },
 });
 
-// 2. Session Recovery
+// 2. Session Management
 const existingSession = sessionManager.getSession(sessionId);
-if (existingSession.lastActivityAt < Date.now() - 30 * 60 * 1000) {
-  // Session expired, reinitialize
-  await sessionManager.initializeSession(config);
-}
-
-// 3. Session Cleanup
-// Implement in your application shutdown
-process.on('SIGTERM', async () => {
-  await sessionManager.cleanup();
+console.log({
+  id: existingSession.id,
+  toolCallCount: existingSession.toolCallCount,
+  maxToolCalls: existingSession.maxToolCalls,
 });
 ```
 
-- Sessions automatically expire after 30 minutes of inactivity
-- Server processes are terminated when sessions are cleaned up
-- Tool capabilities are cached per session
+Key Features:
+
+- Unique session ID generation
+- Tool call limit tracking (default: 2 calls per session)
+- Server capabilities caching per session
+- Message history maintenance
 </details>
 
-### 🛠️ Tool Integration
+### 🛠️ Server Management
 
 <details>
-<summary>Custom Tool Implementation</summary>
+<summary>Server Lifecycle</summary>
 
 ```typescript
-// 1. Define Tool Schema
-const customTool = {
-  name: 'custom-tool',
-  description: 'Performs a custom operation',
-  parameters: {
-    properties: {
-      input: {
-        type: 'string',
-        description: 'Input for the custom operation',
-      },
-    },
-    required: ['input'],
-  },
+// Server Configuration
+const serverConfig = {
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-filesystem', '/workspace'],
+  env: {
+    NODE_ENV: 'production'
+  }
 };
 
-// 2. Implement Tool Handler
-const handleCustomTool = async (params: any) => {
-  // Tool implementation
-  return { result: `Processed: ${params.input}` };
-};
-
-// 3. Register with MCP Server
-const server = new MCPServer({
-  tools: [customTool],
-  handlers: {
-    'custom-tool': handleCustomTool,
-  },
-});
+// Server Health Checks
+- Launch timeout: 5 seconds
+- Health check retries: 3
+- Health check interval: 1 second
+- Health check timeout: 5 seconds
 ```
 
-- Tools must follow the MCP protocol specification
-- Parameters should be strictly typed
-- Include comprehensive error handling
+Key Features:
+
+- Automatic server launch and initialization
+- Health monitoring with retries
+- Error handling for server failures
+- Server capability discovery
 </details>
 
 ### 🔀 Stream Processing
 
 <details>
-<summary>Advanced Stream Handling</summary>
+<summary>Stream Handling</summary>
 
 ```typescript
-// 1. Custom Stream Processing
-const processStream = async (sessionId: string, message: string) => {
-  const stream = sessionManager.sendMessageStream(sessionId, message);
-  let toolResult = null;
+// Stream response handling
+const stream = sessionManager.sendMessageStream(sessionId, message);
 
-  for await (const chunk of stream) {
-    switch (chunk.type) {
-      case 'thinking':
-        // Handle intermediate thoughts
-        break;
-      case 'tool_start':
-        // Track tool execution start
-        break;
-      case 'tool_result':
-        toolResult = chunk.content;
-        // Process tool results
-        break;
-      case 'content':
-        if (toolResult) {
-          // Combine tool results with content
-        }
-        // Process final content
-        break;
-    }
+for await (const chunk of stream) {
+  switch (chunk.type) {
+    case 'content':
+      // Regular content from LLM
+      console.log('Content:', chunk.content);
+      break;
+    case 'error':
+      // Error handling
+      console.error('Error:', chunk.error);
+      break;
+    case 'done':
+      // Stream completion
+      console.log('Stream complete');
+      break;
   }
-};
-
-// 2. Error Recovery in Streams
-try {
-  for await (const chunk of stream) {
-    if (chunk.type === 'error') {
-      // Implement retry logic
-      await handleStreamError(chunk.error);
-      continue;
-    }
-    // Process chunk
-  }
-} catch (error) {
-  // Handle stream interruption
-  await recoverSession(sessionId);
 }
 ```
 
-- Implement backoff strategies for retries
-- Cache intermediate results for recovery
-- Handle stream interruptions gracefully
+Supported chunk types:
+
+- `content`: LLM response content
+- `error`: Error messages
+- `done`: Stream completion marker
 </details>
 
-### 🔒 Security Considerations
+### 🔒 Security Implementation
 
 <details>
-<summary>Security Best Practices</summary>
+<summary>Security Features</summary>
 
 ```typescript
 // 1. API Key Management
 const config = {
   type: 'claude',
   api_key: process.env.ANTHROPIC_API_KEY, // Never hardcode
-  // ...
+  model: 'claude-3-sonnet-20240229',
+  system_prompt: 'You are a helpful assistant.',
 };
 
 // 2. Server Process Isolation
 const serverConfig = {
   command: 'npx',
-  args: [
-    '@modelcontextprotocol/server-filesystem',
-    '/restricted/path', // Restrict access
-  ],
+  args: ['@modelcontextprotocol/server-filesystem', '/restricted/path'],
   env: {
     NODE_ENV: 'production',
-    // Limit environment variables
   },
 };
-
-// 3. Tool Access Control
-const validateToolAccess = (tool: string, user: User) => {
-  const allowedTools = getAllowedTools(user.role);
-  return allowedTools.includes(tool);
-};
 ```
 
-- Implement rate limiting for tool calls
-- Validate all tool inputs
-- Monitor server resource usage
-- Implement audit logging
+Implemented Security Features:
+
+- Secure API key handling
+- Server process isolation
+- Error boundary implementation
+- Input validation for tool calls
 </details>
 
-### 📊 Performance Optimization
+### 🔍 Error Handling
 
 <details>
-<summary>Performance Tips</summary>
+<summary>Error Management</summary>
 
 ```typescript
-// 1. Tool Result Caching
-const cache = new Map<string, any>();
-const getCachedResult = (toolName: string, params: any) => {
-  const key = `${toolName}:${JSON.stringify(params)}`;
-  return cache.get(key);
-};
+// Error Types
+- LLMError: LLM-related errors
+- ServerError: Base server error
+- ServerLaunchError: Server startup failures
+- ServerHealthError: Health check failures
+- ServerExitError: Unexpected server exits
 
-// 2. Batch Processing
-const batchMessages = async (messages: string[]) => {
-  const sessions = new Map<string, string[]>();
-  // Group messages by session
-  // Process in batches
-};
-
-// 3. Resource Management
-const optimizeResources = {
-  maxSessions: 100,
-  toolTimeout: 5000,
-  maxConcurrent: 10,
-};
-```
-
-- Implement connection pooling
-- Use appropriate timeout values
-- Monitor memory usage
-- Implement circuit breakers
-</details>
-
-### 🔍 Debugging & Monitoring
-
-<details>
-<summary>Debugging Tools</summary>
-
-```typescript
-// 1. Session Debugging
-const debugSession = (sessionId: string) => {
-  const session = sessionManager.getSession(sessionId);
-  console.log({
-    toolCalls: session.toolCallCount,
-    lastActivity: session.lastActivityAt,
-    messageCount: session.messages.length,
-  });
-};
-
-// 2. Tool Execution Monitoring
-const monitorTool = async (name: string, params: any) => {
-  const startTime = Date.now();
-  try {
-    const result = await executeTool(name, params);
-    metrics.recordToolExecution(name, Date.now() - startTime);
-    return result;
-  } catch (error) {
-    metrics.recordToolError(name, error);
-    throw error;
+// Error Handling Example
+try {
+  const response = await sessionManager.sendMessage(sessionId, message);
+} catch (error) {
+  if (error instanceof LLMError) {
+    // Handle LLM-specific errors
+  } else if (error instanceof ServerError) {
+    // Handle server-related errors
   }
-};
+}
 ```
 
-- Implement comprehensive logging
-- Add performance metrics
-- Monitor server health
-- Track tool usage patterns
+Error Handling Features:
+
+- Typed error hierarchy
+- Detailed error messages
+- Server health monitoring
+- Automatic cleanup on failures
 </details>
 
 ## Best Practices
@@ -563,3 +490,152 @@ For the complete license text, see:
 ## Support
 
 For issues and feature requests, please use the GitHub issue tracker.
+
+## Appendix
+
+### Common Usage Patterns
+
+<details>
+<summary>Tool Call Handling</summary>
+
+```typescript
+// The client automatically handles tool calls from the LLM
+// Tool calls are detected using the format: <tool>tool-name {"param": "value"}</tool>
+
+// Example of a tool call response from LLM
+{
+  role: 'assistant',
+  content: 'Let me check the files.\n<tool>list-files {"path": "/tmp"}</tool>',
+  hasToolCall: true,
+  toolCall: {
+    name: 'list-files',
+    parameters: { path: '/tmp' }
+  }
+}
+
+// Tool result is automatically added to conversation
+{
+  role: 'assistant',
+  content: '{"files": ["file1.txt", "file2.txt"]}',
+  isToolResult: true
+}
+```
+
+Key Points:
+
+- Tool calls are limited to 2 per session by default
+- Tool results are automatically included in conversation history
+- The LLM receives tool results in the next message context
+</details>
+
+<details>
+<summary>Message Flow</summary>
+
+```typescript
+// 1. User sends message
+const response = await sessionManager.sendMessage(
+  sessionId,
+  'List files in /tmp'
+);
+
+// 2. Message gets added to session history
+session.messages.push({
+  role: 'user',
+  content: message,
+});
+
+// 3. If LLM response contains tool call
+if (response.hasToolCall) {
+  // Tool is automatically executed
+  // Result is added to conversation
+  // LLM receives follow-up with tool result
+}
+
+// 4. Final response includes tool results
+console.log(response.content); // "I found these files: file1.txt, file2.txt"
+```
+
+</details>
+
+### Error Handling Examples
+
+<details>
+<summary>Session Errors</summary>
+
+```typescript
+try {
+  const session = await sessionManager.initializeSession(config);
+} catch (error) {
+  if (error instanceof LLMError) {
+    // Handle LLM initialization errors
+    // - Invalid API key
+    // - Model configuration issues
+  }
+  if (error instanceof ServerError) {
+    // Handle server initialization errors
+    // - Failed to launch server
+    // - Server process not found
+    // - Capability discovery failed
+  }
+}
+```
+
+Common Session Errors:
+
+- Server initialization failures
+- Invalid configurations
+- Tool execution failures
+- LLM API errors
+</details>
+
+<details>
+<summary>Server Health Monitoring</summary>
+
+```typescript
+// Server health checks are automatic
+// Default settings:
+const healthCheckConfig = {
+  launchTimeout: 5000,    // 5 seconds
+  healthCheckTimeout: 5000,
+  healthCheckRetries: 3,
+  healthCheckInterval: 1000
+};
+
+// Health check process:
+1. Wait for server ready message
+2. Verify process is responsive
+3. Retry up to 3 times if needed
+4. Cleanup on failure
+```
+
+Server Error Types:
+
+- `ServerLaunchError`: Failed to start server
+- `ServerHealthError`: Health check failed
+- `ServerExitError`: Server exited unexpectedly
+</details>
+
+<details>
+<summary>Tool Execution Errors</summary>
+
+```typescript
+try {
+  const response = await sessionManager.sendMessage(sessionId, message);
+} catch (error) {
+  if (error instanceof LLMError) {
+    if (error.message.includes('Failed to execute tool')) {
+      // Handle tool execution failure
+      // - Tool not found
+      // - Invalid parameters
+      // - Server communication error
+    }
+  }
+}
+```
+
+Tool Error Handling:
+
+- Automatic cleanup of failed tool executions
+- Tool results are validated before processing
+- Tool call limits are enforced
+</details>

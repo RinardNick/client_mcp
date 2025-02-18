@@ -1,11 +1,15 @@
 /// <reference types="vitest" />
 import { defineConfig } from 'vitest/config';
+import path from 'path';
 
 export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    setupFiles: ['./vitest.setup.ts'],
+    testTimeout: 30000, // 30 seconds for integration tests
+    hookTimeout: 30000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
@@ -17,9 +21,6 @@ export default defineConfig({
         'src/index.ts',
       ],
     },
-    setupFiles: ['./vitest.setup.ts'],
-    testTimeout: 10000,
-    hookTimeout: 10000,
     poolOptions: {
       threads: {
         singleThread: false,

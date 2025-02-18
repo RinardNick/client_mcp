@@ -118,6 +118,8 @@ export class SessionManager {
               `[SESSION] Failed to initialize server ${serverName}:`,
               error
             );
+            // Don't store the session if server initialization fails
+            throw error;
           }
         }
       }
@@ -134,11 +136,7 @@ export class SessionManager {
           stack: error.stack,
         });
       }
-      throw new LLMError(
-        error instanceof Error
-          ? error.message
-          : 'Unknown error during session initialization'
-      );
+      throw error; // Propagate the original error
     }
   }
 
@@ -424,45 +422,27 @@ export class SessionManager {
         stream: true,
       });
 
-      let accumulatedContent = '';
       console.log('[SESSION] Starting to process Anthropic stream');
-
-      if (Symbol.asyncIterator in stream) {
-        for await (const chunk of stream) {
-          console.log('[SESSION] Raw Anthropic chunk:', chunk);
-          if (
-            chunk.type === 'content_block_delta' &&
-            chunk.delta?.type === 'text_delta'
-          ) {
-            accumulatedContent += chunk.delta.text;
-            console.log('[SESSION] Yielding content:', chunk.delta.text);
-            yield { type: 'content', content: chunk.delta.text };
-          }
+      for await (const chunk of stream) {
+        if (
+          chunk.type === 'content_block_delta' &&
+          chunk.delta.type === 'text_delta'
+        ) {
+          // Yield each chunk exactly as it comes from the LLM
+          yield { type: 'content', content: chunk.delta.text };
         }
-      } else {
-        console.error('[SESSION] Stream does not support async iteration');
-        throw new LLMError('Stream does not support async iteration');
       }
 
-      // Add assistant message to history
-      session.messages.push({
-        role: 'assistant',
-        content: accumulatedContent,
-      });
+      yield { type: 'done' };
 
       // Update session activity
       this.updateSessionActivity(sessionId);
-
-      console.log('[SESSION] Stream complete, yielding done');
-      yield { type: 'done' };
     } catch (error) {
-      console.error('[SESSION] Error in stream:', error);
+      console.error('[SESSION] Error in sendMessageStream:', error);
       yield {
         type: 'error',
         error:
-          error instanceof Error
-            ? error.message
-            : 'Unknown error during message sending',
+          error instanceof Error ? error.message : 'Unknown error occurred',
       };
     }
   }

@@ -16,11 +16,13 @@ export class ServerDiscovery {
     );
 
     return new Promise((resolve, reject) => {
-      // Set up message handlers
       let toolsData: any;
       let resourcesData: any;
+      let isServerReady = false;
+      let buffer = '';
+      let startupTimeout: NodeJS.Timeout;
+      let discoveryTimeout: NodeJS.Timeout;
 
-      // Listen for tool and resource data on stdout
       if (!process.stdout) {
         reject(new Error(`Server ${serverName} has no stdout`));
         return;
@@ -33,67 +35,135 @@ export class ServerDiscovery {
 
       const stdin = process.stdin;
 
-      // Log raw stdout for debugging
-      process.stdout.on('data', (data: Buffer) => {
-        console.log(
-          `[DISCOVERY] Raw stdout from ${serverName}:`,
-          data.toString()
+      // Add error handlers
+      process.stdout.on('error', error => {
+        console.error(`[DISCOVERY] Stdout error for ${serverName}:`, error);
+        reject(error);
+      });
+
+      if (process.stderr) {
+        process.stderr.on('data', data => {
+          const message = data.toString();
+          console.error(`[DISCOVERY] Stderr from ${serverName}:`, message);
+
+          // Check for server ready message
+          if (message.includes('running on stdio')) {
+            console.log(`[DISCOVERY] Server ${serverName} is ready`);
+            isServerReady = true;
+            clearTimeout(startupTimeout);
+
+            // Send discovery requests once server is ready
+            console.log(
+              `[DISCOVERY] Sending list_tools command to ${serverName}`
+            );
+            const toolsCommand =
+              JSON.stringify({ command: 'list_tools' }) + '\n';
+            console.log(`[DISCOVERY] Raw tools command:`, toolsCommand);
+            stdin.write(toolsCommand);
+
+            console.log(
+              `[DISCOVERY] Sending list_resources command to ${serverName}`
+            );
+            const resourcesCommand =
+              JSON.stringify({ command: 'list_resources' }) + '\n';
+            console.log(`[DISCOVERY] Raw resources command:`, resourcesCommand);
+            stdin.write(resourcesCommand);
+
+            // Start discovery timeout after sending commands
+            discoveryTimeout = setTimeout(() => {
+              console.error(
+                `[DISCOVERY] Discovery timeout reached for ${serverName}`
+              );
+              console.error(`[DISCOVERY] Tools data received:`, toolsData);
+              console.error(
+                `[DISCOVERY] Resources data received:`,
+                resourcesData
+              );
+              console.error(`[DISCOVERY] Remaining buffer:`, buffer);
+              reject(
+                new Error(
+                  `Capability discovery timeout for server ${serverName}`
+                )
+              );
+            }, 10000);
+          }
+        });
+      }
+
+      process.on('error', error => {
+        console.error(`[DISCOVERY] Process error for ${serverName}:`, error);
+        reject(error);
+      });
+
+      process.on('exit', (code, signal) => {
+        console.error(
+          `[DISCOVERY] Server ${serverName} exited with code ${code} and signal ${signal}`
         );
-        try {
-          const message = JSON.parse(data.toString());
-          console.log(
-            `[DISCOVERY] Parsed message from ${serverName}:`,
-            message
-          );
+        reject(
+          new Error(
+            `Server ${serverName} exited with code ${code} and signal ${signal}`
+          )
+        );
+      });
 
-          if (message.type === 'tools') {
-            toolsData = message.data;
+      // Handle stdout data with buffering for partial messages
+      process.stdout.on('data', (data: Buffer) => {
+        buffer += data.toString();
+
+        let newlineIndex;
+        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, newlineIndex);
+          buffer = buffer.slice(newlineIndex + 1);
+
+          console.log(`[DISCOVERY] Raw stdout from ${serverName}:`, line);
+
+          try {
+            const message = JSON.parse(line);
             console.log(
-              `[DISCOVERY] Received tools from ${serverName}:`,
-              toolsData
+              `[DISCOVERY] Parsed message from ${serverName}:`,
+              message
             );
-          } else if (message.type === 'resources') {
-            resourcesData = message.data;
-            console.log(
-              `[DISCOVERY] Received resources from ${serverName}:`,
-              resourcesData
+
+            if (message.type === 'tools') {
+              toolsData = message.data;
+              console.log(
+                `[DISCOVERY] Received tools from ${serverName}:`,
+                toolsData
+              );
+            } else if (message.type === 'resources') {
+              resourcesData = message.data;
+              console.log(
+                `[DISCOVERY] Received resources from ${serverName}:`,
+                resourcesData
+              );
+            }
+
+            // If we have both tools and resources, resolve
+            if (toolsData && resourcesData) {
+              console.log(
+                `[DISCOVERY] Resolving capabilities for ${serverName}`
+              );
+              clearTimeout(discoveryTimeout);
+              resolve({
+                tools: toolsData.tools || [],
+                resources: resourcesData.resources || [],
+              });
+            }
+          } catch (error) {
+            console.error(
+              `[DISCOVERY] Error parsing message from ${serverName}:`,
+              error,
+              'Raw line:',
+              line
             );
           }
-
-          // If we have both tools and resources, resolve
-          if (toolsData && resourcesData) {
-            console.log(`[DISCOVERY] Resolving capabilities for ${serverName}`);
-            resolve({
-              tools: toolsData.tools || [],
-              resources: resourcesData.resources || [],
-            });
-          }
-        } catch (error) {
-          console.error(
-            `[DISCOVERY] Error parsing message from ${serverName}:`,
-            error,
-            'Raw data:',
-            data.toString()
-          );
         }
       });
 
-      // Send discovery requests with a small delay to ensure handlers are set up
-      setTimeout(() => {
-        console.log(`[DISCOVERY] Sending list_tools command to ${serverName}`);
-        stdin.write(JSON.stringify({ command: 'list_tools' }) + '\n');
-
-        console.log(
-          `[DISCOVERY] Sending list_resources command to ${serverName}`
-        );
-        stdin.write(JSON.stringify({ command: 'list_resources' }) + '\n');
-      }, 100);
-
-      // Set timeout
-      setTimeout(() => {
-        reject(
-          new Error(`Capability discovery timeout for server ${serverName}`)
-        );
+      // Set startup timeout
+      startupTimeout = setTimeout(() => {
+        console.error(`[DISCOVERY] Server ${serverName} startup timeout`);
+        reject(new Error(`Server ${serverName} startup timeout`));
       }, 5000);
     });
   }

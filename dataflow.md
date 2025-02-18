@@ -499,6 +499,67 @@ Content-Type: application/json
 - Recovery status
 - Debug information
 
+### Server Health Check and Initialization Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as MCP Server
+    participant L as LLM
+
+    C->>S: Launch server process
+    S-->>C: "Server running on stdio" message (stderr)
+    Note over C,S: Server is ready for commands
+    C->>S: {"command": "list_tools"}\n
+    S-->>C: {"type": "tools", "data": {"tools": [...]}}
+    C->>S: {"command": "list_resources"}\n
+    S-->>C: {"type": "resources", "data": {"resources": [...]}}
+    Note over C,S: Capability discovery complete
+    C->>L: Initialize with discovered tools
+```
+
+#### Server Health Check Protocol
+
+1. **Server Launch**
+
+   - Client spawns server process with configured command and args
+   - Server initializes and writes startup message to stderr
+   - Expected message format: "Server running on stdio" or similar
+
+2. **Capability Discovery**
+
+   - Client waits for server ready message on stderr
+   - Once ready, client sends tool/resource discovery commands
+   - Commands are newline-delimited JSON over stdin
+   - Responses are newline-delimited JSON over stdout
+
+3. **Communication Protocol**
+
+   ```json
+   // Client -> Server (stdin)
+   {"command": "list_tools"}\n
+   {"command": "list_resources"}\n
+
+   // Server -> Client (stdout)
+   {"type": "tools", "data": {"tools": [...]}}\n
+   {"type": "resources", "data": {"resources": [...]}}\n
+   ```
+
+4. **Error Handling**
+
+   - Server errors are written to stderr
+   - Client should buffer stdout for partial JSON messages
+   - Client should implement timeouts for discovery
+   - Client should handle server process errors
+
+5. **Health States**
+   - Not Started: Process not spawned
+   - Starting: Process spawned, waiting for ready message
+   - Ready: Server announced stdio mode, ready for commands
+   - Discovering: Querying tools and resources
+   - Active: Discovery complete, ready for tool invocations
+   - Error: Server process error or timeout
+
 ```
 
 ```

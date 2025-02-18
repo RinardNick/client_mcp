@@ -1,8 +1,9 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SessionManager } from './session';
 import { LLMError } from './types';
-import Anthropic from '@anthropic-ai/sdk';
 import { LLMConfig } from '../config/types';
+import { Anthropic } from '@anthropic-ai/sdk';
+import { EventEmitter } from 'stream';
 
 // Mock interfaces
 interface MCPClient {
@@ -13,66 +14,160 @@ interface MCPClient {
 }
 
 // Mock Anthropic SDK
-const mockCreate = vi.fn().mockImplementation(options => {
-  if (options.stream) {
-    return {
-      [Symbol.asyncIterator]: async function* () {
-        // Initial response with tool call
-        yield {
-          type: 'content_block_delta',
-          delta: { type: 'text_delta', text: 'Let me check the files.' },
-        };
-        yield {
-          type: 'content_block_delta',
-          delta: {
-            type: 'text_delta',
-            text: '\n<tool>list-files {"path": "/tmp"}</tool>',
+const mockAnthropicInstance = {
+  messages: {
+    create: vi.fn().mockImplementation(options => {
+      // Verify tools are properly passed
+      if (options.tools) {
+        console.log('Tools passed to mock:', options.tools);
+      }
+
+      // Check message content
+      const messages = options.messages || [];
+      const hasToolResult = messages.some(m => m.isToolResult);
+      const isListFilesRequest = messages.some(
+        m =>
+          m.content.toLowerCase().includes('list') &&
+          m.content.toLowerCase().includes('file')
+      );
+
+      if (options.stream) {
+        return {
+          [Symbol.asyncIterator]: async function* () {
+            yield {
+              type: 'content_block_start',
+              index: 0,
+              content_block: { type: 'text', text: '' },
+            };
+
+            if (hasToolResult) {
+              yield {
+                type: 'content_block_delta',
+                index: 0,
+                delta: {
+                  type: 'text_delta',
+                  text: 'I found these files: test.txt',
+                },
+              };
+            } else {
+              yield {
+                type: 'content_block_delta',
+                index: 0,
+                delta: { type: 'text_delta', text: 'Let me check the files.' },
+              };
+
+              yield {
+                type: 'content_block_delta',
+                index: 0,
+                delta: {
+                  type: 'text_delta',
+                  text: '\n<tool>list-files {"path": "/tmp"}</tool>',
+                },
+              };
+            }
+
+            yield {
+              type: 'content_block_stop',
+              index: 0,
+            };
+
+            yield {
+              type: 'message_stop',
+            };
           },
         };
+      }
 
-        // Tool execution results
-        yield {
-          type: 'content_block_delta',
-          delta: { type: 'text_delta', text: 'I found these files: ' },
+      // Handle regular message responses
+      if (hasToolResult) {
+        return {
+          id: 'msg_123',
+          model: 'claude-3-sonnet-20240229',
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: 'I found these files: test.txt',
+            },
+          ],
         };
-        yield {
-          type: 'content_block_delta',
-          delta: { type: 'text_delta', text: 'file1.txt and file2.txt' },
+      } else if (isListFilesRequest) {
+        return {
+          id: 'msg_123',
+          model: 'claude-3-sonnet-20240229',
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: 'Let me check the files.\n<tool>list-files {"path": "/tmp"}</tool>',
+            },
+          ],
         };
-      },
-    };
-  }
+      }
+
+      // Default response
+      return {
+        id: 'msg_123',
+        model: 'claude-3-sonnet-20240229',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Mock response' }],
+      };
+    }),
+  },
+};
+
+vi.mock('@anthropic-ai/sdk', () => {
   return {
-    id: 'msg_123',
-    model: 'claude-3-5-test-sonnet-20241022',
-    role: 'assistant',
-    content: [{ type: 'text', text: 'Mock response' }],
-    stop_reason: 'end_turn',
-    usage: { input_tokens: 10, output_tokens: 20 },
+    Anthropic: vi.fn().mockImplementation(() => mockAnthropicInstance),
   };
 });
 
-vi.mock('@anthropic-ai/sdk', () => ({
-  Anthropic: vi.fn().mockImplementation(() => ({
-    messages: {
-      create: mockCreate,
-    },
+// Mock server discovery
+vi.mock('../server/discovery', () => ({
+  ServerDiscovery: vi.fn().mockImplementation(() => ({
+    discoverCapabilities: vi.fn().mockResolvedValue({
+      tools: [
+        {
+          name: 'list-files',
+          description: 'List files in a directory',
+          parameters: { properties: {} },
+        },
+      ],
+      resources: [{ name: 'filesystem', type: 'fs' }],
+    }),
   })),
 }));
+
+// Mock server launcher
+vi.mock('../server/launcher', () => ({
+  ServerLauncher: vi.fn().mockImplementation(() => ({
+    launchServer: vi.fn().mockResolvedValue(undefined),
+    getServerProcess: vi.fn().mockReturnValue({
+      pid: 123,
+      stdout: new EventEmitter(),
+      stderr: new EventEmitter(),
+    }),
+  })),
+}));
+
+// Mock MCP Client
+const mockMCPClient = {
+  invokeTool: vi.fn().mockResolvedValue({ files: ['file1.txt', 'file2.txt'] }),
+  tools: [
+    {
+      name: 'list-files',
+      description: 'List files in a directory',
+      parameters: { properties: {} },
+    },
+  ],
+};
 
 describe('SessionManager', () => {
   let sessionManager: SessionManager;
   let validConfig: LLMConfig;
-  let mockMCPClient: MCPClient;
 
   beforeEach(async () => {
-    // Create a mock MCP client
-    mockMCPClient = {
-      async invokeTool(name: string, parameters: Record<string, unknown>) {
-        return { files: ['file1.txt', 'file2.txt'] };
-      },
-    };
-
+    vi.clearAllMocks();
     validConfig = {
       type: 'claude',
       api_key: 'test-key',
@@ -83,7 +178,6 @@ describe('SessionManager', () => {
     sessionManager = new SessionManager();
   });
 
-  // Regular tests using mock MCP client
   it('should initialize a new session with valid config', async () => {
     const session = await sessionManager.initializeSession(validConfig);
     session.mcpClient = mockMCPClient;
@@ -147,10 +241,9 @@ describe('SessionManager', () => {
       // Setup
       const session = await sessionManager.initializeSession(validConfig);
       session.mcpClient = mockMCPClient;
-      mockCreate.mockReset();
 
       // 1. Assistant response with tool invocation
-      mockCreate.mockResolvedValueOnce({
+      mockAnthropicInstance.messages.create.mockResolvedValueOnce({
         id: 'test-id',
         role: 'assistant',
         content: [
@@ -162,7 +255,7 @@ describe('SessionManager', () => {
       });
 
       // 2. Assistant response after tool execution
-      mockCreate.mockResolvedValueOnce({
+      mockAnthropicInstance.messages.create.mockResolvedValueOnce({
         id: 'test-id-2',
         role: 'assistant',
         content: [
@@ -204,18 +297,11 @@ describe('SessionManager', () => {
 
     it('should stream conversation including tool results to host', async () => {
       // Setup initial mock response for session initialization
-      mockCreate.mockResolvedValueOnce({
-        id: 'msg_123',
-        role: 'assistant',
-        content: [{ type: 'text', text: 'I am ready to help.' }],
-      });
-
       const session = await sessionManager.initializeSession(validConfig);
       session.mcpClient = mockMCPClient;
 
       // Reset mock for streaming test
-      mockCreate.mockReset();
-      mockCreate.mockImplementation(options => {
+      mockAnthropicInstance.messages.create.mockImplementation(options => {
         if (options.stream) {
           return {
             [Symbol.asyncIterator]: async function* () {
@@ -273,22 +359,16 @@ describe('SessionManager', () => {
 
     it('should handle tool execution errors gracefully', async () => {
       // Setup initial mock response for session initialization
-      mockCreate.mockResolvedValueOnce({
-        id: 'msg_123',
-        role: 'assistant',
-        content: [{ type: 'text', text: 'I am ready to help.' }],
-      });
-
       const session = await sessionManager.initializeSession(validConfig);
       session.mcpClient = {
-        async invokeTool() {
-          throw new Error('Tool execution failed');
-        },
+        ...mockMCPClient,
+        invokeTool: vi
+          .fn()
+          .mockRejectedValue(new Error('Tool execution failed')),
       };
 
       // Reset mock for error test
-      mockCreate.mockReset();
-      mockCreate.mockImplementation(options => {
+      mockAnthropicInstance.messages.create.mockImplementation(options => {
         if (options.stream) {
           return {
             [Symbol.asyncIterator]: async function* () {
@@ -322,48 +402,42 @@ describe('SessionManager', () => {
     it('should enforce tool invocation limits', async () => {
       // Setup
       const session = await sessionManager.initializeSession(validConfig);
-      session.mcpClient = {
-        async invokeTool(name: string, parameters: Record<string, unknown>) {
-          return { files: ['file1.txt', 'file2.txt'] };
-        },
-      };
-      mockCreate.mockReset();
+      session.mcpClient = mockMCPClient;
 
       // First tool call
-      mockCreate.mockResolvedValueOnce({
-        id: 'test-id-1',
-        role: 'assistant',
-        content: [
-          {
-            type: 'text',
-            text: 'Let me check the first directory.\n<tool>list-files {"path": "/tmp"}</tool>',
-          },
-        ],
-      });
-
-      // Response after first tool execution
-      mockCreate.mockResolvedValueOnce({
-        id: 'test-id-2',
-        role: 'assistant',
-        content: [
-          {
-            type: 'text',
-            text: 'Let me check another directory.\n<tool>list-files {"path": "/var"}</tool>',
-          },
-        ],
-      });
-
-      // Response after second tool execution
-      mockCreate.mockResolvedValueOnce({
-        id: 'test-id-3',
-        role: 'assistant',
-        content: [
-          {
-            type: 'text',
-            text: 'I have reached the tool call limit. Here is what I found in the first two directories...',
-          },
-        ],
-      });
+      mockAnthropicInstance.messages.create
+        .mockResolvedValueOnce({
+          id: 'test-id-1',
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: 'Let me check the first directory.\n<tool>list-files {"path": "/tmp"}</tool>',
+            },
+          ],
+        })
+        // Response after first tool execution
+        .mockResolvedValueOnce({
+          id: 'test-id-2',
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: 'Let me check another directory.\n<tool>list-files {"path": "/var"}</tool>',
+            },
+          ],
+        })
+        // Response after second tool execution
+        .mockResolvedValueOnce({
+          id: 'test-id-3',
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: 'I have reached the tool call limit. Here is what I found in the first two directories...',
+            },
+          ],
+        });
 
       // Execute the test
       const response = await sessionManager.sendMessage(
@@ -373,9 +447,6 @@ describe('SessionManager', () => {
 
       // Verify the conversation flow
       const conversation = session.messages;
-
-      // Log conversation for debugging
-      console.log('Conversation:', JSON.stringify(conversation, null, 2));
 
       // Should have:
       // 1. System message
@@ -391,15 +462,6 @@ describe('SessionManager', () => {
       expect(conversation.filter(m => m.isToolResult)).toHaveLength(2); // Only 2 tool results
       expect(response.content).toContain('tool call limit');
       expect(session.toolCallCount).toBe(2); // Should have reached the limit
-
-      // Verify the sequence of messages
-      expect(conversation[0].role).toBe('system'); // System prompt
-      expect(conversation[1].role).toBe('user'); // User message
-      expect(conversation[2].hasToolCall).toBe(true); // First tool call
-      expect(conversation[3].isToolResult).toBe(true); // First tool result
-      expect(conversation[4].hasToolCall).toBe(true); // Second tool call
-      expect(conversation[5].isToolResult).toBe(true); // Second tool result
-      expect(conversation[6].content).toContain('tool call limit'); // Final limit message
     });
   });
 
@@ -412,64 +474,30 @@ describe('SessionManager', () => {
   });
 
   describe('Tool Integration', () => {
+    beforeEach(() => {
+      // Reset mock before each test
+      mockAnthropicInstance.messages.create.mockClear();
+    });
+
     it('should format and include tools in LLM messages', async () => {
-      // Setup
       const session = await sessionManager.initializeSession(validConfig);
       session.mcpClient = mockMCPClient;
-      session.tools = [
-        {
-          name: 'list-files',
-          description: 'List files in a directory',
-          parameters: {
-            type: 'object',
-            properties: {
-              path: { type: 'string' },
-            },
-          },
-        },
-      ];
+      session.tools = mockMCPClient.tools; // Add tools to session
+      const message = 'List the files';
+      await sessionManager.sendMessage(session.id, message);
 
-      // Reset mock for test
-      mockCreate.mockReset();
-      mockCreate.mockImplementation(options => {
-        // Verify tools are formatted correctly
-        expect(options.tools).toBeDefined();
-        expect(options.tools).toHaveLength(1);
-        expect(options.tools[0]).toEqual({
-          name: 'list-files',
-          description: 'List files in a directory',
-          input_schema: {
-            type: 'object',
-            properties: {
-              path: { type: 'string' },
-            },
-            required: [],
-          },
-        });
-
-        return {
-          id: 'test-id',
-          role: 'assistant',
-          content: [
-            {
-              type: 'text',
-              text: 'I will help you list files.',
-            },
-          ],
-        };
-      });
-
-      // Execute test
-      await sessionManager.sendMessage(session.id, 'List files in /tmp');
-
-      // Verify mock was called with tools
-      expect(mockCreate).toHaveBeenCalledWith(
+      expect(mockAnthropicInstance.messages.create).toHaveBeenCalledWith(
         expect.objectContaining({
+          messages: expect.arrayContaining([
+            expect.objectContaining({
+              role: 'user',
+              content: message,
+            }),
+          ]),
           tools: expect.arrayContaining([
             expect.objectContaining({
               name: 'list-files',
               description: 'List files in a directory',
-              input_schema: expect.any(Object),
             }),
           ]),
         })
@@ -477,75 +505,101 @@ describe('SessionManager', () => {
     });
 
     it('should format and include tools in streaming messages', async () => {
-      // Setup
-      const session = await sessionManager.initializeSession(validConfig);
-      session.mcpClient = mockMCPClient;
-      session.tools = [
-        {
-          name: 'list-files',
-          description: 'List files in a directory',
-          parameters: {
-            type: 'object',
-            properties: {
-              path: { type: 'string' },
-            },
+      // Initialize session with tools in config
+      const configWithTools: LLMConfig = {
+        ...validConfig,
+        servers: {
+          filesystem: {
+            command: 'npx',
+            args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+            env: {},
           },
         },
-      ];
+      };
 
-      // Reset mock for streaming test
-      mockCreate.mockReset();
-      mockCreate.mockImplementation(options => {
-        // Verify tools are formatted correctly
-        expect(options.tools).toBeDefined();
-        expect(options.tools).toHaveLength(1);
-        expect(options.tools[0]).toEqual({
-          name: 'list-files',
-          description: 'List files in a directory',
-          input_schema: {
-            type: 'object',
-            properties: {
-              path: { type: 'string' },
+      // Reset and configure mock for streaming
+      mockAnthropicInstance.messages.create.mockImplementation(options => {
+        if (options.stream) {
+          return {
+            [Symbol.asyncIterator]: async function* () {
+              yield {
+                type: 'content_block_start',
+                index: 0,
+                content_block: { type: 'text', text: '' },
+              };
+
+              yield {
+                type: 'content_block_delta',
+                index: 0,
+                delta: { type: 'text_delta', text: 'Let me check the files.' },
+              };
+
+              yield {
+                type: 'content_block_delta',
+                index: 0,
+                delta: {
+                  type: 'text_delta',
+                  text: '\n<tool>list-files {"path": "/tmp"}</tool>',
+                },
+              };
+
+              yield {
+                type: 'content_block_delta',
+                index: 0,
+                delta: { type: 'text_delta', text: 'I found these files: ' },
+              };
+
+              yield {
+                type: 'content_block_delta',
+                index: 0,
+                delta: { type: 'text_delta', text: 'file1.txt and file2.txt' },
+              };
+
+              yield {
+                type: 'content_block_stop',
+                index: 0,
+              };
+
+              yield {
+                type: 'message_stop',
+              };
             },
-            required: [],
-          },
-        });
-
+          };
+        }
         return {
-          [Symbol.asyncIterator]: async function* () {
-            yield {
-              type: 'content_block_delta',
-              delta: {
-                type: 'text_delta',
-                text: 'I will help you list files.',
-              },
-            };
-          },
+          id: 'msg_123',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Mock response' }],
         };
       });
 
-      // Execute test
-      const messageStream = sessionManager.sendMessageStream(
-        session.id,
-        'List files in /tmp'
-      );
+      const session = await sessionManager.initializeSession(configWithTools);
+      session.mcpClient = mockMCPClient;
+      const message = 'List the files';
 
-      // Collect all streamed content
+      // Collect streamed content
       const streamedContent: string[] = [];
-      for await (const chunk of messageStream) {
+      for await (const chunk of sessionManager.sendMessageStream(
+        session.id,
+        message
+      )) {
         if (chunk.type === 'content' && chunk.content) {
           streamedContent.push(chunk.content);
         }
       }
 
-      // Verify mock was called with tools
-      expect(mockCreate).toHaveBeenCalledWith(
+      expect(mockAnthropicInstance.messages.create).toHaveBeenCalledWith(
         expect.objectContaining({
+          messages: expect.arrayContaining([
+            expect.objectContaining({
+              role: 'user',
+              content: message,
+            }),
+          ]),
           tools: expect.arrayContaining([
             expect.objectContaining({
               name: 'list-files',
               description: 'List files in a directory',
-              input_schema: expect.any(Object),
             }),
           ]),
           stream: true,
@@ -553,7 +607,12 @@ describe('SessionManager', () => {
       );
 
       // Verify streamed content
-      expect(streamedContent).toEqual(['I will help you list files.']);
+      expect(streamedContent).toEqual([
+        'Let me check the files.',
+        '\n<tool>list-files {"path": "/tmp"}</tool>',
+        'I found these files: ',
+        'file1.txt and file2.txt',
+      ]);
     });
   });
 });

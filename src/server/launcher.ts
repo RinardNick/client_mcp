@@ -113,7 +113,10 @@ export class ServerLauncher {
       // Handle server ready message
       serverProcess.stderr?.on('data', (data: Buffer) => {
         const message = data.toString();
-        if (message.includes('running on stdio')) {
+        if (
+          message.includes('running on stdio') ||
+          message.includes('Allowed directories:')
+        ) {
           isReady = true;
           clearTimeout(timeoutId);
           resolve();

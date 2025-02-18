@@ -46,8 +46,11 @@ export class ServerDiscovery {
           const message = data.toString();
           console.error(`[DISCOVERY] Stderr from ${serverName}:`, message);
 
-          // Check for server ready message
-          if (message.includes('running on stdio')) {
+          // Check for server ready message - support both formats
+          if (
+            message.includes('running on stdio') ||
+            message.includes('Allowed directories:')
+          ) {
             console.log(`[DISCOVERY] Server ${serverName} is ready`);
             isServerReady = true;
             clearTimeout(startupTimeout);

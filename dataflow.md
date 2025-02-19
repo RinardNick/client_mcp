@@ -510,9 +510,9 @@ sequenceDiagram
     C->>S: Launch server process
     S-->>C: "Server running on stdio" message (stderr)
     Note over C,S: Server is ready for commands
-    C->>S: {"command": "list_tools"}\n
+    C->>S: {"command": "tools/list"}\n
     S-->>C: {"type": "tools", "data": {"tools": [...]}}
-    C->>S: {"command": "list_resources"}\n
+    C->>S: {"command": "resources/list"}\n
     S-->>C: {"type": "resources", "data": {"resources": [...]}}
     Note over C,S: Capability discovery complete
     C->>L: Initialize with discovered tools
@@ -537,8 +537,8 @@ sequenceDiagram
 
    ```json
    // Client -> Server (stdin)
-   {"command": "list_tools"}\n
-   {"command": "list_resources"}\n
+   {"command": "tools/list"}\n
+   {"command": "resources/list"}\n
 
    // Server -> Client (stdout)
    {"type": "tools", "data": {"tools": [...]}}\n

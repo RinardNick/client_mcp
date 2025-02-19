@@ -26,24 +26,23 @@
 - Handles session persistence and recovery
 - Tracks session activity and expiry
 - Coordinates all LLM interactions
-- Manages server lifecycle (launch, health, shutdown)
-- Implements tool detection and execution
+- Manages server lifecycle through SDK (launch, health, shutdown)
+- Leverages SDK for tool discovery and execution
 - Enforces tool call limits
 - Maintains conversation history
 - Provides streaming updates of operations
-- Handles error recovery and retries
-- Maintains server capabilities registry
-- Implements MCP protocol for tool interactions
+- Handles error recovery and retries using SDK mechanisms
+- Maintains server capabilities registry through SDK
+- Uses SDK for MCP protocol communication
 - Manages configuration validation and loading
-- Caches tool capabilities for reuse
-- Provides capability refresh mechanisms
+- Caches tool capabilities using SDK utilities
 
 ### MCP Servers
 
-- Expose tool capabilities through standard endpoints
+- Expose tool capabilities through standard JSON-RPC 2.0 endpoints
 - Execute tool requests according to MCP protocol
 - Provide health status and capability discovery
-- Return tool results or errors
+- Return tool results or errors in SDK-compliant format
 - Maintain their own state and cleanup
 - Handle resource management and access control
 - Implement server-specific security measures
@@ -66,6 +65,7 @@ sequenceDiagram
     participant U as User
     participant H as Host
     participant C as Client
+    participant S as SDK
     participant M as MCP Servers
     participant L as LLM (Anthropic)
 
@@ -73,11 +73,12 @@ sequenceDiagram
     U->>H: Open Chat Interface
     H->>C: Initialize Client
     C->>C: Load Config
-    C->>M: Launch Servers
-    C->>M: Health Check
-    M-->>C: Health Status
-    C->>M: Get Capabilities
-    M-->>C: Tool List
+    C->>S: Create MCP Client
+    S->>M: Launch Servers
+    S->>M: Health Check
+    M-->>S: Health Status
+    S->>M: Get Capabilities (JSON-RPC)
+    M-->>S: Tool List (JSON-RPC)
     C->>L: Initialize Session with Tools
     L-->>C: Session Created
     C->>C: Store Session State
@@ -95,8 +96,10 @@ sequenceDiagram
     C-->>H: Stream: Thinking
     H-->>U: Display Thinking
 
-    C->>M: Execute Tool
-    M-->>C: Tool Result
+    C->>S: Execute Tool via SDK
+    S->>M: JSON-RPC Tool Call
+    M-->>S: JSON-RPC Response
+    S-->>C: Tool Result
     C-->>H: Stream: Tool Result
     H-->>U: Display Tool Result
 
@@ -105,6 +108,53 @@ sequenceDiagram
     C->>C: Update Session State
     C-->>H: Stream: Content
     H-->>U: Display Content
+```
+
+## Detailed Component Interactions
+
+### Session Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Initializing: Create Session
+    Initializing --> ConfigLoading: Load Config
+    ConfigLoading --> SDKInitializing: Create SDK Client
+    SDKInitializing --> ServerLaunching: Launch Servers
+    ServerLaunching --> CapabilityDiscovery: Get Tools
+    CapabilityDiscovery --> Ready: Initialize LLM
+    Ready --> Active: User Interaction
+    Active --> Ready: Await Input
+    Active --> Error: Handle Errors
+    Error --> Ready: Recover
+    Ready --> [*]: Cleanup
+```
+
+### Tool Execution Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as SDK Client
+    participant M as MCP Server
+
+    C->>S: invokeTool(name, params)
+    activate S
+    S->>M: JSON-RPC invoke
+    activate M
+    M-->>S: JSON-RPC response
+    deactivate M
+    S-->>C: Validated Result
+    deactivate S
+
+    Note over C,M: Error Handling
+    C->>S: invokeTool(name, params)
+    activate S
+    S->>M: JSON-RPC invoke
+    activate M
+    M-->>S: Error Response
+    deactivate M
+    S-->>C: MCPError
+    deactivate S
 ```
 
 ## Detailed Data Flow
@@ -157,408 +207,332 @@ sequenceDiagram
 
 ```json
 {
-  "model": "claude-3-5-sonnet-20241022",
-  "max_tokens": 1024,
-  "messages": [
-    {
-      "role": "system",
-      "content": "You are a helpful assistant with access to the following tools:"
+  "jsonrpc": "2.0",
+  "method": "initialize",
+  "params": {
+    "capabilities": {
+      "tools": true,
+      "resources": true
     }
-  ],
-  "tools": [
-    {
-      "type": "function",
-      "function": {
-        "name": "readFile",
-        "description": "Reads a file from the filesystem",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "path": { "type": "string" }
-          },
-          "required": ["path"]
-        }
-      }
-    }
-  ]
-}
-```
-
-#### 1.3 Client → MCP Servers: Launch & Health Check
-
-**Health Check Request:**
-
-```http
-GET http://localhost:3001/health
-```
-
-**Health Check Response:**
-
-```json
-{
-  "status": "healthy",
-  "version": "1.0.0"
-}
-```
-
-#### 1.4 Client → MCP Servers: Get Capabilities
-
-**Capability Request:**
-
-```http
-GET http://localhost:3001/tools/list
-```
-
-**Capability Response:**
-
-```json
-{
-  "tools": [
-    {
-      "name": "readFile",
-      "description": "Reads the content of a file on the filesystem",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "path": { "type": "string" }
-        },
-        "required": ["path"]
-      }
-    }
-  ]
+  },
+  "id": 1
 }
 ```
 
 ### 2. Message Flow
 
-#### 2.1 User → Host: Send Message
+#### 2.1 Tool Invocation (JSON-RPC 2.0)
 
-**Chat Interface Input:**
-
-```json
-{
-  "message": "What files are in /tmp?"
-}
-```
-
-#### 2.2 Host → Client: Forward Message
-
-**API Request:**
-
-```http
-POST /api/chat/session/sess_abc123/message
-Content-Type: application/json
-
-{
-  "message": "What files are in /tmp?"
-}
-```
-
-#### 2.3 Client → LLM: Send Message with Tools
-
-**LLM API Request:**
+**Request:**
 
 ```json
 {
-  "model": "claude-3-5-sonnet-20241022",
-  "max_tokens": 1024,
-  "messages": [
-    {
-      "role": "system",
-      "content": "You are a helpful assistant."
-    },
-    {
-      "role": "user",
-      "content": "What files are in /tmp?"
+  "jsonrpc": "2.0",
+  "method": "invoke",
+  "params": {
+    "tool": "readFile",
+    "arguments": {
+      "path": "/tmp/test.txt"
     }
-  ],
-  "tools": [
-    {
-      "type": "function",
-      "function": {
-        "name": "readFile",
-        "description": "Reads the content of a file on the filesystem",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "path": { "type": "string" }
-          },
-          "required": ["path"]
-        }
-      }
-    }
-  ]
+  },
+  "id": 2
 }
 ```
 
-**LLM Response with Tool Call:**
+**Response:**
 
 ```json
 {
-  "role": "assistant",
-  "content": "I'll check the files in /tmp for you.",
-  "tool_calls": [
-    {
-      "function": {
-        "name": "readFile",
-        "arguments": { "path": "/tmp" }
-      }
-    }
-  ]
+  "jsonrpc": "2.0",
+  "result": {
+    "content": "File contents here..."
+  },
+  "id": 2
 }
 ```
-
-#### 2.4 Client → MCP Server: Execute Tool
-
-**Tool Request:**
-
-```http
-POST http://localhost:3001/tools/invoke
-Content-Type: application/json
-
-{
-  "tool": "readFile",
-  "arguments": { "path": "/tmp" }
-}
-```
-
-**Tool Response:**
-
-```json
-{
-  "files": ["file1.txt", "file2.txt", "log.txt"]
-}
-```
-
-#### 2.5 Client → LLM: Continue with Tool Result
-
-**LLM API Request:**
-
-```json
-{
-  "model": "claude-3-5-sonnet-20241022",
-  "max_tokens": 1024,
-  "messages": [
-    // Previous messages...
-    {
-      "role": "assistant",
-      "content": "I'll check the files in /tmp for you."
-    },
-    {
-      "role": "assistant",
-      "content": "{\"files\": [\"file1.txt\", \"file2.txt\", \"log.txt\"]}",
-      "isToolResult": true
-    }
-  ],
-  "tools": [
-    /* ... same tools as before ... */
-  ]
-}
-```
-
-**LLM Final Response:**
-
-```json
-{
-  "role": "assistant",
-  "content": "I found the following files in /tmp:\n- file1.txt\n- file2.txt\n- log.txt"
-}
-```
-
-#### 2.6 Client → Host: Stream Response
-
-**Server-Sent Events Stream with Inner Dialogue:**
-
-```http
-Content-Type: text/event-stream
-
-data: {"type": "thinking", "content": "I'll check the files in /tmp for you."}
-data: {"type": "tool_start", "content": "Executing readFile tool with path: /tmp"}
-data: {"type": "tool_result", "content": "Found files: file1.txt, file2.txt, log.txt"}
-data: {"type": "thinking", "content": "Let me format these results for you."}
-data: {"type": "content", "content": "I found the following files in /tmp:"}
-data: {"type": "content", "content": "\n- file1.txt\n- file2.txt\n- log.txt"}
-data: {"type": "done"}
-```
-
-The stream types are:
-
-- `thinking`: LLM's intermediate thoughts/planning
-- `tool_start`: When a tool is about to be executed
-- `tool_result`: The result from a tool execution
-- `content`: The final formatted response
-- `error`: Any error messages
-- `done`: Stream completion marker
 
 ### 3. Session Management Flow
 
-#### 3.1 Client: Session State Management
+#### 3.1 Session State Management
 
-**Internal Session State:**
+**Session Interface:**
 
 ```typescript
 interface Session {
   id: string;
   config: LLMConfig;
   createdAt: Date;
-  lastActivity: Date;
+  lastActivityAt: Date;
   messages: Message[];
+  mcpClient: MCPClient; // SDK client instance
   toolCallCount: number;
   maxToolCalls: number;
-  capabilities: Tool[];
+  capabilities: MCPCapabilities;
+}
+
+interface Message {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  toolCalls?: ToolCall[];
+  toolResults?: ToolResult[];
 }
 ```
 
-**Session Operations:**
-
-- Create: Initialize new session with unique ID
-- Update: Track activity timestamps
-- Store: Persist session state
-- Recover: Load session from storage
-- Cleanup: Remove expired sessions
-- Validate: Check session health/expiry
-
-#### 3.2 Host: UI State Management
-
-**UI State:**
+**Session Lifecycle Management:**
 
 ```typescript
-interface UIState {
-  sessionId: string;
-  isLoading: boolean;
-  error: Error | null;
-  messages: DisplayMessage[];
-  availableTools: ToolInfo[];
+class SessionManager {
+  async initializeSession(config: LLMConfig): Promise<Session> {
+    // 1. Create SDK Client
+    const transport = new StdioServerTransport();
+    const mcpClient = await createMCPClient(transport);
+
+    // 2. Initialize Servers
+    await this.initializeServers(config.servers);
+
+    // 3. Discover Capabilities
+    const capabilities = await mcpClient.listCapabilities();
+
+    // 4. Create Session
+    return this.createSession(config, mcpClient, capabilities);
+  }
 }
 ```
 
-**UI Operations:**
+#### 3.2 Message Processing Flow
 
-- Display messages
-- Show loading states
-- Handle errors
-- Update tool display
-- Manage user input
+```mermaid
+flowchart TD
+    A[Receive Message] --> B{Has Tool Calls?}
+    B -- Yes --> C[Process Tool Calls]
+    C --> D[Execute via SDK]
+    D --> E[Collect Results]
+    E --> F[Send to LLM]
+    B -- No --> F
+    F --> G[Generate Response]
+    G --> H[Stream Updates]
+```
 
 ### 4. Tool Execution Flow
 
-#### 4.1 Client → MCP Server: Execute Tool
+#### 4.1 SDK Tool Invocation
 
-**Tool Request:**
+```typescript
+// High-level SDK usage
+const result = await mcpClient.invokeTool('readFile', { path: '/tmp/test.txt' });
 
-```http
-POST http://localhost:3001/tools/invoke
-Content-Type: application/json
-
-{
-  "tool": "readFile",
-  "arguments": { "path": "/tmp" }
+// Underlying JSON-RPC messages
+-> {
+  "jsonrpc": "2.0",
+  "method": "invoke",
+  "params": {
+    "tool": "readFile",
+    "arguments": { "path": "/tmp/test.txt" }
+  },
+  "id": 1
+}
+<- {
+  "jsonrpc": "2.0",
+  "result": {
+    "content": "File contents..."
+  },
+  "id": 1
 }
 ```
 
-**Tool Response:**
+#### 4.2 Tool Result Processing
 
-```json
-{
-  "files": ["file1.txt", "file2.txt", "log.txt"]
-}
+```mermaid
+flowchart TD
+    A[Tool Result] --> B{Validate Result}
+    B -- Valid --> C[Process Result]
+    B -- Invalid --> D[Handle Error]
+    C --> E[Update Session]
+    C --> F[Stream Update]
+    D --> G[Retry/Recover]
+    G --> H{Retry Limit?}
+    H -- Yes --> I[Fail]
+    H -- No --> A
 ```
 
 ### 5. Error Handling Flow
 
-#### 5.1 Client Error Handling
+#### 5.1 Error Types and Handling
 
-**Error Types:**
+```typescript
+// SDK Error Types
+type MCPErrorCode =
+  | -32700 // Parse error
+  | -32600 // Invalid request
+  | -32601 // Method not found
+  | -32602 // Invalid params
+  | -32603 // Internal error
+  | -32000 // Server error
+  | -32001 // Timeout error
+  | -32002; // Validation error;
 
-- Session Errors (not found, expired)
-- Tool Execution Errors
-- LLM Communication Errors
-- Server Health Errors
-- Storage Errors
+interface MCPError {
+  code: MCPErrorCode;
+  message: string;
+  data?: unknown;
+}
 
-**Error Recovery:**
+// Error Handling Example
+try {
+  const result = await mcpClient.invokeTool('readFile', { path });
+} catch (error) {
+  if (error instanceof MCPError) {
+    switch (error.code) {
+      case -32700:
+        // Handle parse error
+        break;
+      case -32600:
+        // Handle invalid request
+        break;
+      // ... handle other cases
+    }
+  }
+}
+```
 
-- Automatic session recovery
-- Tool execution retries
-- Server health checks
-- Storage fallbacks
+#### 5.2 Error Recovery Flow
 
-#### 5.2 Host Error Display
+```mermaid
+stateDiagram-v2
+    [*] --> Normal: Operation Start
+    Normal --> Error: Error Occurs
+    Error --> Retrying: Attempt Retry
+    Retrying --> Normal: Success
+    Retrying --> Error: Failure
+    Error --> Failed: Max Retries
+    Failed --> [*]: Report Error
+```
 
-**Error Display Types:**
+### 6. Streaming Updates Flow
 
-- Connection Status
-- Tool Execution Status
-- Message Delivery Status
-- Session Status
+#### 6.1 Stream Event Types
 
-**User Feedback:**
+```typescript
+type StreamEventType =
+  | 'thinking' // LLM processing
+  | 'tool_start' // Tool execution starting
+  | 'tool_result' // Tool execution complete
+  | 'content' // Content update
+  | 'error' // Error occurred
+  | 'done'; // Stream complete
 
-- Error messages
-- Retry options
-- Recovery status
-- Debug information
+interface StreamEvent {
+  type: StreamEventType;
+  content?: string;
+  error?: MCPError;
+  metadata?: {
+    toolName?: string;
+    toolArgs?: Record<string, unknown>;
+    duration?: number;
+  };
+}
+```
 
-### Server Health Check and Initialization Flow
+#### 6.2 Stream Processing Flow
 
 ```mermaid
 sequenceDiagram
     participant C as Client
-    participant S as MCP Server
-    participant L as LLM
+    participant H as Host
+    participant U as User Interface
 
-    C->>S: Launch server process
-    S-->>C: "Server running on stdio" message (stderr)
-    Note over C,S: Server is ready for commands
-    C->>S: {"command": "tools/list"}\n
-    S-->>C: {"type": "tools", "data": {"tools": [...]}}
-    C->>S: {"command": "resources/list"}\n
-    S-->>C: {"type": "resources", "data": {"resources": [...]}}
-    Note over C,S: Capability discovery complete
-    C->>L: Initialize with discovered tools
+    C->>H: Stream: Thinking
+    H->>U: Update UI (Thinking)
+    C->>H: Stream: Tool Start
+    H->>U: Update UI (Tool Running)
+    C->>H: Stream: Tool Result
+    H->>U: Update UI (Result)
+    C->>H: Stream: Content
+    H->>U: Update UI (Content)
+    C->>H: Stream: Done
+    H->>U: Update UI (Complete)
 ```
 
-#### Server Health Check Protocol
+### 7. Security Considerations
 
-1. **Server Launch**
+#### 7.1 SDK Security Features
 
-   - Client spawns server process with configured command and args
-   - Server initializes and writes startup message to stderr
-   - Expected message format: "Server running on stdio" or similar
+- Automatic input validation
+- Secure transport handling
+- Resource isolation
+- Error sanitization
 
-2. **Capability Discovery**
+#### 7.2 Security Flow
 
-   - Client waits for server ready message on stderr
-   - Once ready, client sends tool/resource discovery commands
-   - Commands are newline-delimited JSON over stdin
-   - Responses are newline-delimited JSON over stdout
+```mermaid
+flowchart TD
+    A[Tool Request] --> B{Validate Input}
+    B -- Valid --> C[Check Permissions]
+    C -- Allowed --> D[Execute Tool]
+    C -- Denied --> E[Security Error]
+    B -- Invalid --> F[Validation Error]
+    D --> G{Sanitize Output}
+    G --> H[Return Result]
+    E --> I[Log Security Event]
+    F --> I
+```
 
-3. **Communication Protocol**
+## Implementation Notes
 
-   ```json
-   // Client -> Server (stdin)
-   {"command": "tools/list"}\n
-   {"command": "resources/list"}\n
+### SDK Best Practices
 
-   // Server -> Client (stdout)
-   {"type": "tools", "data": {"tools": [...]}}\n
-   {"type": "resources", "data": {"resources": [...]}}\n
+1. **Initialization**
+
+   ```typescript
+   // Always use SDK's built-in validation
+   const client = await createMCPClient(transport, {
+     validateInput: true,
+     validateOutput: true,
+   });
    ```
 
-4. **Error Handling**
+2. **Error Handling**
 
-   - Server errors are written to stderr
-   - Client should buffer stdout for partial JSON messages
-   - Client should implement timeouts for discovery
-   - Client should handle server process errors
+   ```typescript
+   // Use SDK's error types for consistent handling
+   try {
+     await client.invokeTool(name, params);
+   } catch (error) {
+     if (error instanceof MCPTimeoutError) {
+       // Handle timeout
+     } else if (error instanceof MCPValidationError) {
+       // Handle validation error
+     }
+   }
+   ```
 
-5. **Health States**
-   - Not Started: Process not spawned
-   - Starting: Process spawned, waiting for ready message
-   - Ready: Server announced stdio mode, ready for commands
-   - Discovering: Querying tools and resources
-   - Active: Discovery complete, ready for tool invocations
-   - Error: Server process error or timeout
+3. **Resource Management**
+   ```typescript
+   // Proper cleanup
+   async function cleanup() {
+     await client.disconnect();
+     await transport.close();
+   }
+   ```
+
+### Performance Considerations
+
+1. **Caching**
+
+   - SDK handles capability caching
+   - Implement result caching where appropriate
+   - Cache session state efficiently
+
+2. **Concurrency**
+
+   - SDK manages concurrent tool calls
+   - Implement request queuing if needed
+   - Monitor resource usage
+
+3. **Memory Management**
+   - Clean up SDK resources
+   - Monitor session size
+   - Implement session pruning
 
 ```
 

@@ -17,8 +17,10 @@ enum ServerState {
 }
 
 export class ServerDiscovery {
-  private readonly startupTimeout = 15000; // 15 seconds
-  private readonly discoveryTimeout = 20000; // 20 seconds
+  private readonly startupTimeout = 30000; // 30 seconds
+  private readonly discoveryTimeout = 30000; // 30 seconds
+  private readonly commandRetryInterval = 2000; // 2 seconds
+  private readonly maxCommandRetries = 3;
 
   private logStateTransition(
     serverName: string,
@@ -63,14 +65,33 @@ export class ServerDiscovery {
       let startupTimeout: NodeJS.Timeout;
       let discoveryTimeout: NodeJS.Timeout;
       let commandsSent = { tools: false, resources: false };
+      let isRejected = false;
+
+      const cleanup = () => {
+        clearTimeout(startupTimeout);
+        clearTimeout(discoveryTimeout);
+        process.stdout?.removeAllListeners('data');
+        process.stdout?.removeAllListeners('error');
+        process.stderr?.removeAllListeners('data');
+        process.removeAllListeners('error');
+        process.removeAllListeners('exit');
+      };
+
+      const safeReject = (error: Error) => {
+        if (!isRejected) {
+          isRejected = true;
+          cleanup();
+          reject(error);
+        }
+      };
 
       if (!process.stdout) {
-        reject(new Error(`Server ${serverName} has no stdout`));
+        safeReject(new Error(`Server ${serverName} has no stdout`));
         return;
       }
 
       if (!process.stdin) {
-        reject(new Error(`Server ${serverName} has no stdin`));
+        safeReject(new Error(`Server ${serverName} has no stdin`));
         return;
       }
 
@@ -92,7 +113,7 @@ export class ServerDiscovery {
           `stdout error: ${error.message}`
         );
         serverState = ServerState.Error;
-        reject(error);
+        safeReject(error);
       });
 
       if (process.stderr) {
@@ -108,7 +129,10 @@ export class ServerDiscovery {
           // Check for server ready message - support both formats
           if (
             message.includes('running on stdio') ||
-            message.includes('Allowed directories:')
+            message.includes('Allowed directories:') ||
+            message.includes('Server started') ||
+            message.includes('Ready for commands') ||
+            message.includes('MCP server initialized')
           ) {
             this.logStateTransition(
               serverName,
@@ -119,71 +143,92 @@ export class ServerDiscovery {
             serverState = ServerState.Ready;
             clearTimeout(startupTimeout);
 
-            // Send discovery requests once server is ready
-            this.logStateTransition(
-              serverName,
-              serverState,
-              ServerState.Discovering,
-              'sending capability discovery commands'
-            );
-            serverState = ServerState.Discovering;
-
-            // Send list_tools command
-            console.log(
-              `[DISCOVERY] Sending list_tools command to ${serverName}
-               - Time since start: ${Date.now() - startTime}ms`
-            );
-            const toolsCommand =
-              JSON.stringify({ command: 'list_tools' }) + '\n';
-            const toolsSuccess = stdin.write(toolsCommand);
-            commandsSent.tools = toolsSuccess;
-            console.log(
-              `[DISCOVERY] list_tools command ${
-                toolsSuccess ? 'sent' : 'failed'
-              } to ${serverName}
-               - Raw command: ${toolsCommand.trim()}`
-            );
-
-            // Send list_resources command
-            console.log(
-              `[DISCOVERY] Sending list_resources command to ${serverName}
-               - Time since start: ${Date.now() - startTime}ms`
-            );
-            const resourcesCommand =
-              JSON.stringify({ command: 'list_resources' }) + '\n';
-            const resourcesSuccess = stdin.write(resourcesCommand);
-            commandsSent.resources = resourcesSuccess;
-            console.log(
-              `[DISCOVERY] list_resources command ${
-                resourcesSuccess ? 'sent' : 'failed'
-              } to ${serverName}
-               - Raw command: ${resourcesCommand.trim()}`
-            );
-
-            // Start discovery timeout after sending commands
-            discoveryTimeout = setTimeout(() => {
-              console.error(
-                `[DISCOVERY] Discovery timeout reached for ${serverName}:
-                 - Time since start: ${Date.now() - startTime}ms
-                 - Current state: ${serverState}
-                 - Commands sent: ${JSON.stringify(commandsSent)}
-                 - Tools data: ${JSON.stringify(toolsData)}
-                 - Resources data: ${JSON.stringify(resourcesData)}`
-              );
-              this.logBuffer(serverName, buffer);
+            // Add delay before sending commands to ensure server is fully ready
+            setTimeout(() => {
+              // Send discovery requests once server is ready
               this.logStateTransition(
                 serverName,
                 serverState,
-                ServerState.Error,
-                'discovery timeout'
+                ServerState.Discovering,
+                'sending capability discovery commands'
               );
-              serverState = ServerState.Error;
-              reject(
-                new Error(
-                  `Capability discovery timeout for server ${serverName}`
-                )
-              );
-            }, this.discoveryTimeout);
+              serverState = ServerState.Discovering;
+
+              let retryCount = 0;
+              const sendCommands = () => {
+                // Send tools/list command
+                console.log(
+                  `[DISCOVERY] Sending tools/list command to ${serverName}
+                   - Time since start: ${Date.now() - startTime}ms
+                   - Retry count: ${retryCount}
+                   - Current state: ${serverState}`
+                );
+                const toolsCommand =
+                  JSON.stringify({ command: 'tools/list' }) + '\n';
+                const toolsSuccess = stdin.write(toolsCommand);
+                commandsSent.tools = toolsSuccess;
+                console.log(
+                  `[DISCOVERY] tools/list command sent successfully: ${toolsSuccess}`
+                );
+
+                // Send resources/list command
+                console.log(
+                  `[DISCOVERY] Sending resources/list command to ${serverName}
+                   - Time since start: ${Date.now() - startTime}ms
+                   - Retry count: ${retryCount}
+                   - Current state: ${serverState}`
+                );
+                const resourcesCommand =
+                  JSON.stringify({ command: 'resources/list' }) + '\n';
+                const resourcesSuccess = stdin.write(resourcesCommand);
+                commandsSent.resources = resourcesSuccess;
+                console.log(
+                  `[DISCOVERY] resources/list command sent successfully: ${resourcesSuccess}`
+                );
+
+                // Retry if either command failed
+                if (
+                  (!toolsSuccess || !resourcesSuccess) &&
+                  retryCount < this.maxCommandRetries
+                ) {
+                  retryCount++;
+                  console.log(
+                    `[DISCOVERY] Retrying commands for ${serverName}
+                     - Time since start: ${Date.now() - startTime}ms
+                     - Next retry count: ${retryCount}
+                     - Current state: ${serverState}`
+                  );
+                  setTimeout(sendCommands, this.commandRetryInterval);
+                }
+              };
+
+              sendCommands();
+
+              // Start discovery timeout after sending commands
+              discoveryTimeout = setTimeout(() => {
+                console.error(
+                  `[DISCOVERY] Discovery timeout reached for ${serverName}:
+                   - Time since start: ${Date.now() - startTime}ms
+                   - Current state: ${serverState}
+                   - Commands sent: ${JSON.stringify(commandsSent)}
+                   - Tools data: ${JSON.stringify(toolsData)}
+                   - Resources data: ${JSON.stringify(resourcesData)}`
+                );
+                this.logBuffer(serverName, buffer);
+                this.logStateTransition(
+                  serverName,
+                  serverState,
+                  ServerState.Error,
+                  'discovery timeout'
+                );
+                serverState = ServerState.Error;
+                safeReject(
+                  new Error(
+                    `Capability discovery timeout for server ${serverName}`
+                  )
+                );
+              }, this.discoveryTimeout);
+            }, 1000); // Wait 1 second before sending commands
           }
         });
       }
@@ -204,7 +249,7 @@ export class ServerDiscovery {
           `process error: ${error.message}`
         );
         serverState = ServerState.Error;
-        reject(error);
+        safeReject(error);
       });
 
       process.on('exit', (code, signal) => {
@@ -223,7 +268,7 @@ export class ServerDiscovery {
           `process exit: code=${code}, signal=${signal}`
         );
         serverState = ServerState.Error;
-        reject(
+        safeReject(
           new Error(
             `Server ${serverName} exited with code ${code} and signal ${signal}`
           )
@@ -231,79 +276,69 @@ export class ServerDiscovery {
       });
 
       // Handle stdout data with buffering for partial messages
-      process.stdout.on('data', (data: Buffer) => {
-        buffer += data.toString();
+      process.stdout.on('data', data => {
+        const message = data.toString();
         console.log(
-          `[DISCOVERY] Received data from ${serverName}:
-           - Data length: ${data.length} bytes
-           - Current buffer length: ${buffer.length} bytes
+          `[DISCOVERY] Server ${serverName} stdout:
+           - Message: ${message.trim()}
+           - Current state: ${serverState}
            - Time since start: ${Date.now() - startTime}ms`
         );
 
-        let newlineIndex;
-        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-          const line = buffer.slice(0, newlineIndex);
-          buffer = buffer.slice(newlineIndex + 1);
+        buffer += message;
 
-          console.log(
-            `[DISCOVERY] Processing line from ${serverName}:
-             - Line length: ${line.length} bytes
-             - Remaining buffer: ${buffer.length} bytes`
-          );
+        try {
+          // Try to parse each line as JSON
+          const lines = buffer.split('\n');
+          for (let i = 0; i < lines.length - 1; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
 
-          try {
-            const message = JSON.parse(line);
-            console.log(
-              `[DISCOVERY] Parsed message from ${serverName}:
-               - Type: ${message.type}
-               - Time since start: ${Date.now() - startTime}ms`
-            );
-
-            if (message.type === 'tools') {
-              toolsData = message.data;
+            try {
+              const response = JSON.parse(line);
               console.log(
-                `[DISCOVERY] Received tools from ${serverName}:
-                 - Tool count: ${toolsData.tools?.length || 0}
-                 - Tools: ${JSON.stringify(toolsData.tools)}`
+                `[DISCOVERY] Parsed response from ${serverName}:
+                 - Type: ${response.type}
+                 - Data: ${JSON.stringify(response.data)}`
               );
-            } else if (message.type === 'resources') {
-              resourcesData = message.data;
+
+              if (response.type === 'tools') {
+                toolsData = response.data.tools;
+              } else if (response.type === 'resources') {
+                resourcesData = response.data.resources;
+              }
+
+              // If we have both tools and resources, we're done
+              if (toolsData && resourcesData) {
+                this.logStateTransition(
+                  serverName,
+                  serverState,
+                  ServerState.Active,
+                  'discovery complete'
+                );
+                serverState = ServerState.Active;
+                clearTimeout(discoveryTimeout);
+                resolve({ tools: toolsData, resources: resourcesData });
+              }
+            } catch (e: unknown) {
+              const error = e instanceof Error ? e : new Error(String(e));
               console.log(
-                `[DISCOVERY] Received resources from ${serverName}:
-                 - Resource count: ${resourcesData.resources?.length || 0}
-                 - Resources: ${JSON.stringify(resourcesData.resources)}`
+                `[DISCOVERY] Failed to parse line from ${serverName}:
+                 - Line: ${line}
+                 - Error: ${error.message}`
               );
             }
-
-            // If we have both tools and resources, resolve
-            if (toolsData && resourcesData) {
-              this.logStateTransition(
-                serverName,
-                serverState,
-                ServerState.Active,
-                `discovery complete after ${Date.now() - startTime}ms`
-              );
-              serverState = ServerState.Active;
-              clearTimeout(discoveryTimeout);
-              resolve({
-                tools: toolsData.tools || [],
-                resources: resourcesData.resources || [],
-              });
-            }
-          } catch (error) {
-            console.error(
-              `[DISCOVERY] Error parsing message from ${serverName}:
-               - Error: ${
-                 error instanceof Error ? error.message : 'Unknown error'
-               }
-               - Raw line: ${line}
-               - Time since start: ${Date.now() - startTime}ms`
-            );
           }
+          // Keep the last partial line in the buffer
+          buffer = lines[lines.length - 1];
+        } catch (e: unknown) {
+          const error = e instanceof Error ? e : new Error(String(e));
+          console.error(
+            `[DISCOVERY] Error processing stdout for ${serverName}:
+             - Error: ${error.message}
+             - Buffer: ${buffer}`
+          );
         }
-
-        // Log remaining buffer if any
-        this.logBuffer(serverName, buffer);
       });
 
       // Set startup timeout
@@ -322,8 +357,121 @@ export class ServerDiscovery {
           'startup timeout'
         );
         serverState = ServerState.Error;
-        reject(new Error(`Server ${serverName} startup timeout`));
+        safeReject(new Error(`Server ${serverName} startup timeout`));
       }, this.startupTimeout);
+    });
+  }
+
+  // Adding new discover method to support integration tests
+  public discover(
+    childProc: ChildProcess
+  ): Promise<{ tools: any[]; resources: any[] }> {
+    return new Promise((resolve, reject) => {
+      let buffer = '';
+      let toolsData: any = null;
+      let resourcesData: any = null;
+      const startTime = Date.now();
+      const discoveryTimeout = setTimeout(() => {
+        reject(
+          new Error(`Discovery timeout reached for process ${childProc.pid}`)
+        );
+      }, 30000);
+
+      const cleanup = () => {
+        clearTimeout(discoveryTimeout);
+        childProc.stdout?.removeAllListeners('data');
+        childProc.stderr?.removeAllListeners('data');
+      };
+
+      childProc.stdout?.on('data', (data: Buffer) => {
+        buffer += data.toString();
+        let newlineIndex: number;
+        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          try {
+            const response = JSON.parse(line);
+            console.log(
+              `[DISCOVERY] Parsed response from process ${childProc.pid}:
+               - Response: ${JSON.stringify(response)}`
+            );
+
+            // Handle JSON-RPC response
+            if (response.jsonrpc === '2.0' && response.result) {
+              if (response.id === 1) {
+                toolsData = response.result;
+                // For servers that only have tools, resolve immediately
+                cleanup();
+                resolve({
+                  tools: toolsData.tools || [],
+                  resources: [],
+                });
+              }
+            }
+          } catch (error) {
+            // Ignore parsing errors and wait for more data
+            console.log(
+              `[DISCOVERY] Failed to parse line from process ${childProc.pid}:
+               - Line: ${line}
+               - Error: ${
+                 error instanceof Error ? error.message : String(error)
+               }`
+            );
+          }
+        }
+        // Fallback: if buffer seems like a complete JSON object without newline
+        const trimmed = buffer.trim();
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+          try {
+            const response = JSON.parse(trimmed);
+            console.log(
+              `[DISCOVERY] Parsed fallback response from process ${
+                childProc.pid
+              }:
+               - Response: ${JSON.stringify(response)}`
+            );
+
+            // Handle JSON-RPC response
+            if (response.jsonrpc === '2.0' && response.result) {
+              if (response.id === 1) {
+                toolsData = response.result;
+                // For servers that only have tools, resolve immediately
+                cleanup();
+                resolve({
+                  tools: toolsData.tools || [],
+                  resources: [],
+                });
+              }
+            }
+
+            buffer = '';
+          } catch (err) {
+            // Do nothing; wait for more data
+          }
+        }
+      });
+
+      childProc.stderr?.on('data', (data: Buffer) => {
+        console.error(
+          `Discovery error from process ${childProc.pid}: ${data.toString()}`
+        );
+      });
+
+      childProc.on('error', err => {
+        cleanup();
+        reject(err);
+      });
+
+      childProc.on('exit', code => {
+        if (!(toolsData && resourcesData)) {
+          cleanup();
+          reject(
+            new Error(
+              `Child process exited with code ${code} before discovery complete`
+            )
+          );
+        }
+      });
     });
   }
 }

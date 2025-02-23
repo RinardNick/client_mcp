@@ -1,4 +1,6 @@
 import { MCPTool, MCPResource } from '@modelcontextprotocol/sdk';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { ChildProcess } from 'child_process';
 
 export interface ServerCapabilities {
@@ -56,6 +58,18 @@ export class ServerDiscovery {
        - Discovery timeout: ${this.discoveryTimeout}ms
        - Process PID: ${process.pid}`
     );
+
+    // Initialize SDK client
+    const transport = new StdioClientTransport({
+      command: process.spawnfile,
+      args: process.spawnargs,
+      env: globalThis.process.env as unknown as Record<string, string>,
+    });
+
+    const client = new Client({
+      name: 'ts-mcp-client',
+      version: '1.0.0',
+    });
 
     return new Promise((resolve, reject) => {
       let toolsData: any;

@@ -1,6 +1,11 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { ServerDiscovery } from './discovery';
-import { ChildProcess } from 'child_process';
+import { ServerDiscovery, ServerState } from './discovery';
+import {
+  ChildProcess,
+  SendHandle,
+  Serializable,
+  MessageOptions,
+} from 'child_process';
 import { EventEmitter } from 'events';
 import { Readable, Writable } from 'stream';
 
@@ -73,18 +78,99 @@ class MockProcess
   }
 
   // Event emitter methods
-  on(event: string, listener: (...args: any[]) => void): this {
+  on(event: string | symbol, listener: (...args: any[]) => void): this {
     this.eventEmitter.on(event, listener);
     return this;
   }
 
-  once(event: string, listener: (...args: any[]) => void): this {
+  once(event: string | symbol, listener: (...args: any[]) => void): this {
     this.eventEmitter.once(event, listener);
     return this;
   }
 
-  emit(event: string, ...args: any[]): boolean {
+  emit(event: string | symbol, ...args: any[]): boolean {
     return this.eventEmitter.emit(event, ...args);
+  }
+
+  addListener(
+    event: string | symbol,
+    listener: (...args: any[]) => void
+  ): this {
+    this.eventEmitter.addListener(event, listener);
+    return this;
+  }
+
+  removeListener(
+    event: string | symbol,
+    listener: (...args: any[]) => void
+  ): this {
+    this.eventEmitter.removeListener(event, listener);
+    return this;
+  }
+
+  removeAllListeners(event?: string | symbol): this {
+    this.eventEmitter.removeAllListeners(event);
+    return this;
+  }
+
+  prependListener(
+    event: string | symbol,
+    listener: (...args: any[]) => void
+  ): this {
+    this.eventEmitter.prependListener(event, listener);
+    return this;
+  }
+
+  prependOnceListener(
+    event: string | symbol,
+    listener: (...args: any[]) => void
+  ): this {
+    this.eventEmitter.prependOnceListener(event, listener);
+    return this;
+  }
+
+  send(
+    message: Serializable,
+    sendHandle?: SendHandle,
+    options?: MessageOptions,
+    callback?: (error: Error | null) => void
+  ): boolean {
+    if (callback) callback(null);
+    return true;
+  }
+
+  off(event: string | symbol, listener: (...args: any[]) => void): this {
+    this.eventEmitter.off(event, listener);
+    return this;
+  }
+
+  setMaxListeners(n: number): this {
+    this.eventEmitter.setMaxListeners(n);
+    return this;
+  }
+
+  getMaxListeners(): number {
+    return this.eventEmitter.getMaxListeners();
+  }
+
+  listeners(event: string | symbol): Function[] {
+    return this.eventEmitter.listeners(event);
+  }
+
+  rawListeners(event: string | symbol): Function[] {
+    return this.eventEmitter.rawListeners(event);
+  }
+
+  listenerCount(event: string | symbol): number {
+    return this.eventEmitter.listenerCount(event);
+  }
+
+  eventNames(): Array<string | symbol> {
+    return this.eventEmitter.eventNames();
+  }
+
+  [Symbol.dispose](): void {
+    this.eventEmitter.removeAllListeners();
   }
 
   // Required ChildProcess methods
@@ -355,6 +441,64 @@ describe('ServerDiscovery', () => {
         mockProcess as unknown as ChildProcess
       );
       await expect(promise).rejects.toThrow('Server test startup timeout');
+    });
+  });
+
+  describe('Server State Transitions', () => {
+    it('should track state transitions correctly', async () => {
+      const discovery = new ServerDiscovery();
+      const mockProcess = new MockProcess() as unknown as ChildProcess;
+
+      if (!mockProcess.stderr || !mockProcess.stdout) {
+        throw new Error('Mock process missing stderr or stdout');
+      }
+
+      const stateTransitions: ServerState[] = [];
+      discovery['logStateTransition'] = (
+        _serverName: string,
+        from: ServerState,
+        to: ServerState
+      ) => {
+        stateTransitions.push(to);
+      };
+
+      const promise = discovery.discoverCapabilities('test', mockProcess);
+
+      // Emit server ready message
+      mockProcess.stderr.emit(
+        'data',
+        Buffer.from('Secure MCP Filesystem Server running on stdio\n')
+      );
+
+      // Emit tool and resource responses
+      mockProcess.stdout.emit(
+        'data',
+        Buffer.from(
+          JSON.stringify({
+            type: 'tools',
+            data: { tools: [] },
+          }) + '\n'
+        )
+      );
+
+      mockProcess.stdout.emit(
+        'data',
+        Buffer.from(
+          JSON.stringify({
+            type: 'resources',
+            data: { resources: [] },
+          }) + '\n'
+        )
+      );
+
+      await promise;
+
+      // Verify state transitions
+      expect(stateTransitions).toEqual([
+        ServerState.Ready,
+        ServerState.Discovering,
+        ServerState.Active,
+      ]);
     });
   });
 });

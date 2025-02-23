@@ -7,7 +7,7 @@ export interface ServerCapabilities {
 }
 
 // Server health states
-enum ServerState {
+export enum ServerState {
   NotStarted = 'NotStarted',
   Starting = 'Starting',
   Ready = 'Ready',

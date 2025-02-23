@@ -501,4 +501,54 @@ describe('ServerDiscovery', () => {
       ]);
     });
   });
+
+  describe('Command Retry Behavior', () => {
+    it('should retry failed commands up to max retries', async () => {
+      const discovery = new ServerDiscovery();
+      const mockProcess = new MockProcess() as unknown as ChildProcess;
+
+      if (!mockProcess.stderr || !mockProcess.stdout || !mockProcess.stdin) {
+        throw new Error('Mock process missing required streams');
+      }
+
+      // Track write attempts and timing
+      let writeAttempts = 0;
+      const writeTimestamps: number[] = [];
+      const originalWrite = mockProcess.stdin.write;
+      mockProcess.stdin.write = (
+        chunk: any,
+        encoding?: any,
+        callback?: any
+      ) => {
+        writeAttempts++;
+        writeTimestamps.push(Date.now());
+        // Succeed after 2 failures (on 3rd attempt)
+        const success = writeAttempts > 2;
+        if (callback) callback();
+        return success;
+      };
+
+      // Start discovery process
+      const promise = discovery.discoverCapabilities('test', mockProcess);
+
+      // Emit server ready message
+      mockProcess.stderr.emit(
+        'data',
+        Buffer.from('Secure MCP Filesystem Server running on stdio\n')
+      );
+
+      // Wait for retries to complete
+      await promise.catch(() => {}); // Ignore potential timeout
+
+      // Verify number of attempts
+      expect(writeAttempts).toBe(3);
+
+      // Verify retry intervals
+      for (let i = 1; i < writeTimestamps.length; i++) {
+        const interval = writeTimestamps[i] - writeTimestamps[i - 1];
+        expect(interval).toBeGreaterThanOrEqual(1900); // Allow 100ms margin
+        expect(interval).toBeLessThanOrEqual(2100); // Allow 100ms margin
+      }
+    });
+  });
 });

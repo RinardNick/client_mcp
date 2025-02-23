@@ -551,4 +551,66 @@ describe('ServerDiscovery', () => {
       }
     });
   });
+
+  describe('Resource Cleanup', () => {
+    it('should clean up resources on success', async () => {
+      const discovery = new ServerDiscovery();
+      const mockProcess = new MockProcess() as unknown as ChildProcess;
+
+      if (!mockProcess.stderr || !mockProcess.stdout) {
+        throw new Error('Mock process missing required streams');
+      }
+
+      const cleanupSpy = vi.spyOn(mockProcess, 'removeAllListeners');
+      const promise = discovery.discoverCapabilities('test', mockProcess);
+
+      // Emit server ready message
+      mockProcess.stderr.emit(
+        'data',
+        Buffer.from('Secure MCP Filesystem Server running on stdio\n')
+      );
+
+      // Emit tool and resource responses
+      mockProcess.stdout.emit(
+        'data',
+        Buffer.from(
+          JSON.stringify({
+            type: 'tools',
+            data: { tools: [] },
+          }) + '\n'
+        )
+      );
+
+      mockProcess.stdout.emit(
+        'data',
+        Buffer.from(
+          JSON.stringify({
+            type: 'resources',
+            data: { resources: [] },
+          }) + '\n'
+        )
+      );
+
+      await promise;
+      expect(cleanupSpy).toHaveBeenCalled();
+    });
+
+    it('should clean up resources on failure', async () => {
+      const discovery = new ServerDiscovery();
+      const mockProcess = new MockProcess() as unknown as ChildProcess;
+
+      if (!mockProcess.stderr || !mockProcess.stdout) {
+        throw new Error('Mock process missing required streams');
+      }
+
+      const cleanupSpy = vi.spyOn(mockProcess, 'removeAllListeners');
+      const promise = discovery.discoverCapabilities('test', mockProcess);
+
+      // Emit error
+      mockProcess.emit('error', new Error('Test error'));
+
+      await expect(promise).rejects.toThrow('Test error');
+      expect(cleanupSpy).toHaveBeenCalled();
+    });
+  });
 });

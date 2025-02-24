@@ -16,6 +16,8 @@ build/
 # Config
 config.json
 
+frontend/
+
 # IDE
 .vscode/
 .idea/

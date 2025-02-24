@@ -58,28 +58,43 @@ function createMockProcess() {
       mockProcess.emit('exit', signal || 0, null);
       return true;
     }),
-    on(event: string | symbol, listener: (...args: any[]) => void) {
+    on(
+      event: string | symbol,
+      listener: (...args: any[]) => void
+    ): ChildProcess {
       mockProcess.on(event, listener);
-      return this;
+      return this as ChildProcess;
     },
-    once(event: string | symbol, listener: (...args: any[]) => void) {
+    once(
+      event: string | symbol,
+      listener: (...args: any[]) => void
+    ): ChildProcess {
       mockProcess.once(event, listener);
-      return this;
+      return this as ChildProcess;
     },
-    emit(event: string | symbol, ...args: any[]) {
+    emit(event: string | symbol, ...args: any[]): boolean {
       return mockProcess.emit(event, ...args);
     },
-    addListener(event: string | symbol, listener: (...args: any[]) => void) {
+    addListener(
+      event: string | symbol,
+      listener: (...args: any[]) => void
+    ): ChildProcess {
       mockProcess.addListener(event, listener);
-      return this;
+      return this as ChildProcess;
     },
-    removeListener(event: string | symbol, listener: (...args: any[]) => void) {
+    removeListener(
+      event: string | symbol,
+      listener: (...args: any[]) => void
+    ): ChildProcess {
       mockProcess.removeListener(event, listener);
-      return this;
+      return this as ChildProcess;
     },
-    off(event: string | symbol, listener: (...args: any[]) => void) {
+    off(
+      event: string | symbol,
+      listener: (...args: any[]) => void
+    ): ChildProcess {
       mockProcess.off(event, listener);
-      return this;
+      return this as ChildProcess;
     },
   };
 

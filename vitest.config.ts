@@ -5,10 +5,14 @@ import path from 'path';
 export default defineConfig({
   resolve: {
     alias: {
-      '@modelcontextprotocol/sdk/client':
-        '@modelcontextprotocol/sdk/dist/esm/client',
-      '@modelcontextprotocol/sdk/transport':
-        '@modelcontextprotocol/sdk/dist/esm/transport',
+      '@modelcontextprotocol/sdk/dist/esm/client': path.resolve(
+        __dirname,
+        'node_modules/@modelcontextprotocol/sdk/dist/esm/client'
+      ),
+      '@modelcontextprotocol/sdk/dist/esm/transport': path.resolve(
+        __dirname,
+        'node_modules/@modelcontextprotocol/sdk/dist/esm/transport'
+      ),
     },
   },
   test: {

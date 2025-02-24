@@ -1,8 +1,9 @@
 import { vi, describe, it, expect, beforeEach, Mock } from 'vitest';
 import { ServerDiscovery, ServerState } from './discovery';
 import { ChildProcess } from 'child_process';
-import { createMCPClient } from '@modelcontextprotocol/sdk/dist/esm/client';
-import { StdioTransport } from '@modelcontextprotocol/sdk/dist/esm/transport';
+import { MCPTool } from '@modelcontextprotocol/sdk';
+import { createMCPClient } from '@modelcontextprotocol/sdk/client';
+import { StdioTransport } from '@modelcontextprotocol/sdk/transport';
 
 // Mock SDK
 vi.mock('@modelcontextprotocol/sdk/dist/esm/client', () => ({

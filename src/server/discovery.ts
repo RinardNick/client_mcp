@@ -1,6 +1,6 @@
 import { MCPTool, MCPResource } from '@modelcontextprotocol/sdk';
-import { createMCPClient } from '@modelcontextprotocol/sdk/dist/esm/client';
-import { StdioTransport } from '@modelcontextprotocol/sdk/dist/esm/transport';
+import { createMCPClient } from '@modelcontextprotocol/sdk/client';
+import { StdioTransport } from '@modelcontextprotocol/sdk/transport';
 import { ChildProcess } from 'child_process';
 
 export interface ServerCapabilities {

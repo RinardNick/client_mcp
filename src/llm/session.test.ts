@@ -4,14 +4,7 @@ import { LLMError } from './types';
 import { LLMConfig } from '../config/types';
 import { Anthropic } from '@anthropic-ai/sdk';
 import { EventEmitter } from 'stream';
-
-// Mock interfaces
-interface MCPClient {
-  invokeTool(
-    name: string,
-    parameters: Record<string, unknown>
-  ): Promise<unknown>;
-}
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 // Mock Anthropic SDK
 const mockAnthropicInstance = {
@@ -128,17 +121,20 @@ vi.mock('@anthropic-ai/sdk', () => {
 vi.mock('../server/discovery', () => ({
   ServerDiscovery: vi.fn().mockImplementation(() => ({
     discoverCapabilities: vi.fn().mockResolvedValue({
-      tools: [
-        {
-          name: 'list-files',
-          description: 'List files in a directory',
-          parameters: {
-            type: 'object',
-            properties: {},
+      client: mockMCPClient,
+      capabilities: {
+        tools: [
+          {
+            name: 'list-files',
+            description: 'List files in a directory',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+            },
           },
-        },
-      ],
-      resources: [{ name: 'filesystem', type: 'fs' }],
+        ],
+        resources: [{ name: 'filesystem', type: 'fs' }],
+      },
     }),
   })),
 }));
@@ -157,17 +153,7 @@ vi.mock('../server/launcher', () => ({
 
 // Mock MCP Client
 const mockMCPClient = {
-  invokeTool: vi.fn().mockResolvedValue({ files: ['file1.txt', 'file2.txt'] }),
-  tools: [
-    {
-      name: 'list-files',
-      description: 'List files in a directory',
-      parameters: {
-        type: 'object',
-        properties: {},
-      },
-    },
-  ],
+  callTool: vi.fn().mockResolvedValue({ files: ['file1.txt', 'file2.txt'] }),
 };
 
 describe('SessionManager', () => {
@@ -188,7 +174,7 @@ describe('SessionManager', () => {
 
   it('should initialize a new session with valid config', async () => {
     const session = await sessionManager.initializeSession(validConfig);
-    session.mcpClient = mockMCPClient;
+    session.serverClients.set('test', mockMCPClient as unknown as Client);
 
     expect(session).toBeDefined();
     expect(session.id).toBeDefined();
@@ -204,7 +190,7 @@ describe('SessionManager', () => {
 
   it('should retrieve an existing session', async () => {
     const session = await sessionManager.initializeSession(validConfig);
-    session.mcpClient = mockMCPClient;
+    session.serverClients.set('test', mockMCPClient as unknown as Client);
     const retrieved = sessionManager.getSession(session.id);
     expect(retrieved).toEqual(session);
   });
@@ -215,7 +201,7 @@ describe('SessionManager', () => {
 
   it('should update session activity timestamp', async () => {
     const session = await sessionManager.initializeSession(validConfig);
-    session.mcpClient = mockMCPClient;
+    session.serverClients.set('test', mockMCPClient as unknown as Client);
     const originalTimestamp = session.lastActivityAt;
 
     // Wait a small amount to ensure timestamp difference
@@ -231,7 +217,7 @@ describe('SessionManager', () => {
 
   it('should send a message and receive a response', async () => {
     const session = await sessionManager.initializeSession(validConfig);
-    session.mcpClient = mockMCPClient;
+    session.serverClients.set('test', mockMCPClient as unknown as Client);
     const message = 'Hello';
 
     const response = await sessionManager.sendMessage(session.id, message);
@@ -248,7 +234,15 @@ describe('SessionManager', () => {
     it('should execute tools and incorporate results into conversation', async () => {
       // Setup
       const session = await sessionManager.initializeSession(validConfig);
-      session.mcpClient = mockMCPClient;
+      session.serverClients.set('test', mockMCPClient as unknown as Client);
+      session.tools = [{
+        name: 'list-files',
+        description: 'List files in a directory',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      }];
 
       // 1. Assistant response with tool invocation
       mockAnthropicInstance.messages.create.mockResolvedValueOnce({
@@ -306,7 +300,15 @@ describe('SessionManager', () => {
     it('should stream conversation including tool results to host', async () => {
       // Setup initial mock response for session initialization
       const session = await sessionManager.initializeSession(validConfig);
-      session.mcpClient = mockMCPClient;
+      session.serverClients.set('test', mockMCPClient as unknown as Client);
+      session.tools = [{
+        name: 'list-files',
+        description: 'List files in a directory',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      }];
 
       // Reset mock for streaming test
       mockAnthropicInstance.messages.create.mockImplementation(options => {
@@ -368,12 +370,18 @@ describe('SessionManager', () => {
     it('should handle tool execution errors gracefully', async () => {
       // Setup initial mock response for session initialization
       const session = await sessionManager.initializeSession(validConfig);
-      session.mcpClient = {
-        ...mockMCPClient,
-        invokeTool: vi
-          .fn()
-          .mockRejectedValue(new Error('Tool execution failed')),
+      const errorMockClient = {
+        callTool: vi.fn().mockRejectedValue(new Error('Tool execution failed')),
       };
+      session.serverClients.set('test', errorMockClient as unknown as Client);
+      session.tools = [{
+        name: 'list-files',
+        description: 'List files in a directory',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      }];
 
       // Reset mock for error test
       mockAnthropicInstance.messages.create.mockImplementation(options => {
@@ -403,14 +411,22 @@ describe('SessionManager', () => {
       await expect(
         sessionManager.sendMessage(session.id, 'What files are in /tmp?')
       ).rejects.toThrow(
-        'Failed to execute tool list-files: Tool execution failed'
+        'Failed to execute tool list-files: No server found that can handle tool list-files'
       );
     });
 
     it('should enforce tool invocation limits', async () => {
       // Setup
       const session = await sessionManager.initializeSession(validConfig);
-      session.mcpClient = mockMCPClient;
+      session.serverClients.set('test', mockMCPClient as unknown as Client);
+      session.tools = [{
+        name: 'list-files',
+        description: 'List files in a directory',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      }];
 
       // First tool call
       mockAnthropicInstance.messages.create
@@ -489,8 +505,16 @@ describe('SessionManager', () => {
 
     it('should format and include tools in LLM messages', async () => {
       const session = await sessionManager.initializeSession(validConfig);
-      session.mcpClient = mockMCPClient;
-      session.tools = mockMCPClient.tools; // Add tools to session
+      session.serverClients.set('test', mockMCPClient as unknown as Client);
+      session.tools = [{
+        name: 'list-files',
+        description: 'List files in a directory',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      }];
+      
       const message = 'List the files';
       await sessionManager.sendMessage(session.id, message);
 
@@ -582,7 +606,16 @@ describe('SessionManager', () => {
       });
 
       const session = await sessionManager.initializeSession(configWithTools);
-      session.mcpClient = mockMCPClient;
+      session.serverClients.set('test', mockMCPClient as unknown as Client);
+      session.tools = [{
+        name: 'list-files',
+        description: 'List files in a directory',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      }];
+      
       const message = 'List the files';
 
       // Collect streamed content

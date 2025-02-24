@@ -1,6 +1,6 @@
-import { MCPTool, MCPResource } from '@modelcontextprotocol/sdk';
-import { createMCPClient } from '@modelcontextprotocol/sdk/client';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio';
+import { MCPTool, MCPResource } from '../llm/types';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { ChildProcess } from 'child_process';
 
 export interface ServerCapabilities {
@@ -54,17 +54,17 @@ export class ServerDiscovery {
   /**
    * Discovers capabilities of an MCP server using the SDK.
    * This method is used after the server has been launched by ServerLauncher.
-   * The SDK's createMCPClient handles server health verification through protocol handshake.
+   * The SDK's Client class handles server health verification through protocol handshake.
    *
    * @param serverName - Name of the server for logging
    * @param process - ChildProcess instance from ServerLauncher
-   * @returns Promise<ServerCapabilities> - Discovered tools and resources
+   * @returns Promise<{ client: Client, capabilities: ServerCapabilities }> - Client and discovered capabilities
    * @throws DiscoveryError - When server health check or capability discovery fails
    */
   async discoverCapabilities(
     serverName: string,
     process: ChildProcess
-  ): Promise<ServerCapabilities> {
+  ): Promise<{ client: Client, capabilities: ServerCapabilities }> {
     let currentState = ServerState.NotStarted;
     const updateState = (newState: ServerState, details?: string) => {
       this.logStateTransition(serverName, currentState, newState, details);
@@ -81,15 +81,72 @@ export class ServerDiscovery {
       });
       updateState(ServerState.Ready, 'SDK transport initialized');
 
-      // Initialize MCP client and discover capabilities
-      // This includes protocol handshake and health verification
+      // Initialize MCP client
       updateState(ServerState.Discovering, 'Creating MCP client');
-      const client = await createMCPClient(transport);
+      
+      // Create client with app info
+      const client = new Client(
+        {
+          name: "mcp-client",
+          version: "1.0.0"
+        },
+        {
+          capabilities: {
+            tools: {},
+            resources: {}
+          }
+        }
+      );
 
-      // Validate discovered capabilities
+      // Connect to the server (handles protocol handshake)
+      await client.connect(transport);
+      
+      // Discover server capabilities
+      const toolsResult = await client.listTools({});
+      const resourcesResult = await client.listResources({});
+      
+      // Convert the SDK's response to our types with proper type handling
+      const tools = (toolsResult.tools || []).map(tool => {
+        const toolObj: MCPTool = {
+          name: tool.name,
+          description: tool.description
+        };
+        
+        if (tool.inputSchema) {
+          toolObj.inputSchema = {
+            type: "object",
+            properties: tool.inputSchema.properties ? 
+              (tool.inputSchema.properties as Record<string, any>) : {},
+            required: Array.isArray(tool.inputSchema.required) ? 
+              tool.inputSchema.required as string[] : undefined
+          };
+        }
+        
+        return toolObj;
+      });
+      
+      const resources = (resourcesResult.resources || []).map(resource => {
+        const resourceObj: MCPResource = {
+          name: resource.name,
+          type: typeof resource.type === 'string' ? resource.type : "unknown",
+          description: resource.description
+        };
+        
+        if (resource.uri) {
+          resourceObj.uri = resource.uri;
+        }
+        
+        if (resource.mimeType) {
+          resourceObj.mimeType = resource.mimeType;
+        }
+        
+        return resourceObj;
+      });
+      
+      // Create the capabilities object
       const capabilities: ServerCapabilities = {
-        tools: client.tools || [],
-        resources: client.resources || [],
+        tools,
+        resources,
       };
 
       if (!capabilities.tools.length && !capabilities.resources.length) {
@@ -101,7 +158,7 @@ export class ServerDiscovery {
         `Discovered ${capabilities.tools.length} tools and ${capabilities.resources.length} resources`
       );
 
-      return capabilities;
+      return { client, capabilities };
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -124,24 +181,24 @@ export class ServerDiscovery {
    * The SDK handles health verification during client initialization.
    *
    * @param servers - Map of server names to their processes
-   * @returns Promise<Map<string, ServerCapabilities>> - Map of server names to their capabilities
+   * @returns Promise<Map<string, { client: Client, capabilities: ServerCapabilities }>> - Map of server names to clients and capabilities
    * @throws DiscoveryError - When any server fails capability discovery
    */
   async discoverAllCapabilities(
     servers: Map<string, ChildProcess>
-  ): Promise<Map<string, ServerCapabilities>> {
-    const capabilities = new Map<string, ServerCapabilities>();
+  ): Promise<Map<string, { client: Client, capabilities: ServerCapabilities }>> {
+    const results = new Map<string, { client: Client, capabilities: ServerCapabilities }>();
     const errors: Error[] = [];
 
     // Discover capabilities for all servers concurrently
     const discoveries = Array.from(servers.entries()).map(
       async ([name, process]) => {
         try {
-          const serverCapabilities = await this.discoverCapabilities(
+          const result = await this.discoverCapabilities(
             name,
             process
           );
-          capabilities.set(name, serverCapabilities);
+          results.set(name, result);
         } catch (error) {
           errors.push(
             error instanceof Error
@@ -161,6 +218,6 @@ export class ServerDiscovery {
       );
     }
 
-    return capabilities;
+    return results;
   }
 }

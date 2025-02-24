@@ -1,23 +1,31 @@
 import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
 import { ServerDiscovery, ServerState } from './discovery';
 import { ChildProcess } from 'child_process';
-import { MCPTool } from '@modelcontextprotocol/sdk';
-import { createMCPClient } from '@modelcontextprotocol/sdk/client';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio';
+import { MCPTool } from '../llm/types';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-// Mock SDK
-vi.mock('@modelcontextprotocol/sdk/client', () => ({
-  createMCPClient: vi.fn(),
+// Mock transport and client
+vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
+  StdioClientTransport: vi.fn().mockImplementation(() => ({
+    close: vi.fn().mockResolvedValue(undefined)
+  })),
 }));
 
-vi.mock('@modelcontextprotocol/sdk/client/stdio', () => ({
-  StdioClientTransport: vi.fn(),
+vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
+  Client: vi.fn().mockImplementation(() => ({
+    connect: vi.fn().mockResolvedValue(undefined),
+    listTools: vi.fn().mockResolvedValue({ tools: [] }),
+    listResources: vi.fn().mockResolvedValue({ resources: [] })
+  })),
 }));
 
 describe('ServerDiscovery', () => {
   let discovery: ServerDiscovery;
   let mockProcess: ChildProcess;
-  let mockClient: { tools: any[]; resources: any[] };
+  let mockTools: MCPTool[];
+  let mockResources: any[];
+  let mockClient: any;
 
   beforeEach(() => {
     discovery = new ServerDiscovery();
@@ -29,18 +37,37 @@ describe('ServerDiscovery', () => {
       spawnargs: ['/test/path', 'arg1', 'arg2']
     } as unknown as ChildProcess;
 
+    // Setup mock tool and resource responses
+    mockTools = [{ 
+      name: 'test-tool', 
+      description: 'A test tool',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' }
+        }
+      } 
+    }];
+    
+    mockResources = [{ 
+      name: 'test-resource', 
+      type: 'test',
+      description: 'A test resource'
+    }];
+
     mockClient = {
-      tools: [{ name: 'test-tool', description: 'A test tool' }],
-      resources: [{ name: 'test-resource', type: 'test' }],
+      connect: vi.fn().mockResolvedValue(undefined),
+      listTools: vi.fn().mockResolvedValue({ tools: mockTools }),
+      listResources: vi.fn().mockResolvedValue({ resources: mockResources })
     };
 
     (StdioClientTransport as Mock).mockImplementation(() => ({}));
-    (createMCPClient as Mock).mockResolvedValue(mockClient);
+    (Client as Mock).mockImplementation(() => mockClient);
   });
 
   describe('Server Capability Discovery', () => {
     it('should discover server capabilities using SDK', async () => {
-      const capabilities = await discovery.discoverCapabilities(
+      const result = await discovery.discoverCapabilities(
         'test',
         mockProcess
       );
@@ -49,20 +76,26 @@ describe('ServerDiscovery', () => {
         command: mockProcess.spawnfile,
         args: mockProcess.spawnargs?.slice(1) || []
       });
-      expect(createMCPClient).toHaveBeenCalled();
-      expect(capabilities).toEqual({
-        tools: mockClient.tools,
-        resources: mockClient.resources,
+
+      expect(Client).toHaveBeenCalled();
+      expect(mockClient.connect).toHaveBeenCalled();
+      expect(mockClient.listTools).toHaveBeenCalled();
+      expect(mockClient.listResources).toHaveBeenCalled();
+
+      expect(result.client).toBe(mockClient);
+      expect(result.capabilities).toEqual({
+        tools: mockTools,
+        resources: mockResources,
       });
     });
 
     it('should handle SDK initialization errors', async () => {
       const error = new Error('SDK initialization failed');
-      (createMCPClient as Mock).mockRejectedValue(error);
+      mockClient.connect.mockRejectedValue(error);
 
       await expect(
         discovery.discoverCapabilities('test', mockProcess)
-      ).rejects.toThrow(error);
+      ).rejects.toThrow('SDK initialization failed');
     });
 
     it('should track state transitions correctly', async () => {
@@ -89,7 +122,7 @@ describe('ServerDiscovery', () => {
 
     it('should track error state on failure', async () => {
       const error = new Error('SDK error');
-      (createMCPClient as Mock).mockRejectedValue(error);
+      mockClient.connect.mockRejectedValue(error);
 
       const stateTransitions: ServerState[] = [];
       const originalLogTransition = discovery['logStateTransition'];
@@ -104,16 +137,14 @@ describe('ServerDiscovery', () => {
 
       await expect(
         discovery.discoverCapabilities('test', mockProcess)
-      ).rejects.toThrow(error);
+      ).rejects.toThrow('SDK error');
 
       expect(stateTransitions).toContain(ServerState.Error);
     });
 
     it('should throw error when no capabilities are discovered', async () => {
-      (createMCPClient as Mock).mockResolvedValue({
-        tools: [],
-        resources: [],
-      });
+      mockClient.listTools.mockResolvedValue({ tools: [] });
+      mockClient.listResources.mockResolvedValue({ resources: [] });
 
       await expect(
         discovery.discoverCapabilities('test', mockProcess)
@@ -128,16 +159,16 @@ describe('ServerDiscovery', () => {
         ['server2', mockProcess],
       ]);
 
-      const capabilities = await discovery.discoverAllCapabilities(servers);
+      const results = await discovery.discoverAllCapabilities(servers);
 
-      expect(capabilities.size).toBe(2);
-      expect(capabilities.get('server1')).toEqual({
-        tools: mockClient.tools,
-        resources: mockClient.resources,
+      expect(results.size).toBe(2);
+      expect(results.get('server1')?.capabilities).toEqual({
+        tools: mockTools,
+        resources: mockResources,
       });
-      expect(capabilities.get('server2')).toEqual({
-        tools: mockClient.tools,
-        resources: mockClient.resources,
+      expect(results.get('server2')?.capabilities).toEqual({
+        tools: mockTools,
+        resources: mockResources,
       });
     });
 
@@ -148,9 +179,24 @@ describe('ServerDiscovery', () => {
       ]);
 
       const error = new Error('SDK error');
-      (createMCPClient as Mock)
-        .mockResolvedValueOnce(mockClient)
-        .mockRejectedValueOnce(error);
+      let callCount = 0;
+      
+      // Reset the mock to have one success and one failure
+      const originalDiscoverCapabilities = discovery.discoverCapabilities.bind(discovery);
+      discovery.discoverCapabilities = vi.fn().mockImplementation(async (serverName, process) => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            client: mockClient,
+            capabilities: {
+              tools: mockTools,
+              resources: mockResources
+            }
+          };
+        } else {
+          throw error;
+        }
+      });
 
       await expect(discovery.discoverAllCapabilities(servers)).rejects.toThrow(
         'One or more servers failed capability discovery'

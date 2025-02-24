@@ -1,5 +1,24 @@
 import { LLMConfig } from '../config/types';
-import { MCPClient } from '@modelcontextprotocol/sdk';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+
+// Simple type definitions matching the SDK's structure
+export interface MCPTool {
+  name: string;
+  description?: string;
+  inputSchema?: {
+    type: "object";
+    properties: Record<string, any>;
+    required?: string[];
+  };
+}
+
+export interface MCPResource {
+  name: string;
+  type?: string;
+  description?: string;
+  uri?: string;
+  mimeType?: string;
+}
 
 export interface ChatSession {
   id: string;
@@ -7,9 +26,11 @@ export interface ChatSession {
   createdAt: Date;
   lastActivityAt: Date;
   messages: ChatMessage[];
-  mcpClient?: MCPClient;
+  serverClients: Map<string, Client>;
   toolCallCount: number;
   maxToolCalls: number;
+  tools: MCPTool[];
+  resources: MCPResource[];
 }
 
 export interface ToolCall {

@@ -3,7 +3,8 @@ import { LLMConfig } from '../config/types';
 import { ChatMessage, LLMError } from './types';
 import { Anthropic } from '@anthropic-ai/sdk';
 import type { Tool } from '@anthropic-ai/sdk/resources/messages/messages';
-import { MCPClient, MCPTool } from '@modelcontextprotocol/sdk';
+import { MCPTool, MCPResource } from './types';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ServerLauncher } from '../server/launcher';
 import { ServerDiscovery } from '../server/discovery';
 import { globalSessions } from './store';
@@ -19,10 +20,11 @@ export interface ChatSession {
   createdAt: Date;
   lastActivityAt: Date;
   messages: ChatMessage[];
-  mcpClient?: MCPClient;
+  serverClients: Map<string, Client>;
   toolCallCount: number;
   maxToolCalls: number;
-  tools?: MCPTool[];
+  tools: MCPTool[];
+  resources: MCPResource[];
 }
 
 export class SessionManager {
@@ -35,11 +37,10 @@ export class SessionManager {
     return tools.map(tool => ({
       name: tool.name,
       input_schema: {
-        type: 'object',
-        properties: tool.parameters.properties,
-        required: [], // MCP tools don't specify required fields, so we leave it empty
+        type: "object",
+        properties: tool.inputSchema?.properties || {},
       },
-      description: tool.description,
+      description: tool.description || '',
     }));
   }
 
@@ -65,8 +66,11 @@ export class SessionManager {
         createdAt: new Date(),
         lastActivityAt: new Date(),
         messages: [],
+        serverClients: new Map(),
         toolCallCount: 0,
         maxToolCalls: 2,
+        tools: [],
+        resources: []
       };
 
       // Initialize Anthropic client
@@ -99,19 +103,18 @@ export class SessionManager {
             }
 
             // Discover server capabilities
-            const capabilities =
-              await this.serverDiscovery.discoverCapabilities(
-                serverName,
-                serverProcess
-              );
+            const result = await this.serverDiscovery.discoverCapabilities(
+              serverName,
+              serverProcess
+            );
 
-            // Store tools in session
-            if (!session.tools) {
-              session.tools = [];
-            }
-            session.tools.push(...capabilities.tools);
+            // Store client and capabilities
+            session.serverClients.set(serverName, result.client);
+            session.tools.push(...result.capabilities.tools);
+            session.resources.push(...result.capabilities.resources);
+            
             console.log(
-              `[SESSION] Added ${capabilities.tools.length} tools from ${serverName}`
+              `[SESSION] Added ${result.capabilities.tools.length} tools and ${result.capabilities.resources.length} resources from ${serverName}`
             );
           } catch (error) {
             console.error(
@@ -140,6 +143,32 @@ export class SessionManager {
     }
   }
 
+  private async executeTool(
+    session: ChatSession,
+    toolName: string,
+    parameters: Record<string, unknown>
+  ): Promise<unknown> {
+    // Find the client that can handle this tool
+    for (const [serverName, client] of session.serverClients.entries()) {
+      try {
+        // Check if this server has the tool
+        const tool = session.tools.find(t => t.name === toolName);
+        if (tool) {
+          console.log(`[SESSION] Executing tool ${toolName} with server ${serverName}`);
+          // Call the tool using the client
+          const result = await client.callTool({
+            name: toolName,
+            parameters
+          });
+          return result;
+        }
+      } catch (error) {
+        console.error(`[SESSION] Error checking tools in ${serverName}:`, error);
+      }
+    }
+    throw new Error(`No server found that can handle tool ${toolName}`);
+  }
+
   private async processToolCall(
     sessionId: string,
     message: ChatMessage
@@ -156,8 +185,9 @@ export class SessionManager {
     }
 
     try {
-      const result = await session.mcpClient!.invokeTool(
-        message.toolCall.name,
+      const result = await this.executeTool(
+        session, 
+        message.toolCall.name, 
         message.toolCall.parameters
       );
 
@@ -275,7 +305,7 @@ export class SessionManager {
       console.log('[SESSION] Added user message to history');
 
       // Format tools for Anthropic if available
-      const tools = session.tools
+      const tools = session.tools.length > 0
         ? this.formatToolsForLLM(session.tools)
         : undefined;
       console.log('[SESSION] Formatted tools for Anthropic:', tools);
@@ -339,8 +369,8 @@ export class SessionManager {
         toolCall,
       };
 
-      // Execute tool call if available and has MCP client
-      if (hasToolCall && toolCall && session.mcpClient) {
+      // Execute tool call if available
+      if (hasToolCall && toolCall && session.serverClients.size > 0) {
         // Add assistant message to history before processing tool call
         session.messages.push(assistantMessage);
 
@@ -402,7 +432,7 @@ export class SessionManager {
       });
 
       // Format tools for Anthropic if available
-      const tools = session.tools
+      const tools = session.tools.length > 0
         ? this.formatToolsForLLM(session.tools)
         : undefined;
       console.log('[SESSION] Formatted tools for Anthropic:', tools);

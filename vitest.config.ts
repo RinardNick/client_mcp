@@ -3,6 +3,14 @@ import { defineConfig } from 'vitest/config';
 import path from 'path';
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@modelcontextprotocol/sdk/client':
+        '@modelcontextprotocol/sdk/dist/esm/client',
+      '@modelcontextprotocol/sdk/transport':
+        '@modelcontextprotocol/sdk/dist/esm/transport',
+    },
+  },
   test: {
     globals: true,
     environment: 'node',

@@ -3,15 +3,15 @@ import { ServerDiscovery, ServerState } from './discovery';
 import { ChildProcess } from 'child_process';
 import { MCPTool } from '@modelcontextprotocol/sdk';
 import { createMCPClient } from '@modelcontextprotocol/sdk/client';
-import { StdioTransport } from '@modelcontextprotocol/sdk/transport';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio';
 
 // Mock SDK
 vi.mock('@modelcontextprotocol/sdk/client', () => ({
   createMCPClient: vi.fn(),
 }));
 
-vi.mock('@modelcontextprotocol/sdk/transport', () => ({
-  StdioTransport: vi.fn(),
+vi.mock('@modelcontextprotocol/sdk/client/stdio', () => ({
+  StdioClientTransport: vi.fn(),
 }));
 
 describe('ServerDiscovery', () => {
@@ -25,6 +25,8 @@ describe('ServerDiscovery', () => {
       stdout: vi.fn(),
       stderr: vi.fn(),
       stdin: vi.fn(),
+      spawnfile: '/test/path',
+      spawnargs: ['/test/path', 'arg1', 'arg2']
     } as unknown as ChildProcess;
 
     mockClient = {
@@ -32,7 +34,7 @@ describe('ServerDiscovery', () => {
       resources: [{ name: 'test-resource', type: 'test' }],
     };
 
-    (StdioTransport as Mock).mockImplementation(() => ({}));
+    (StdioClientTransport as Mock).mockImplementation(() => ({}));
     (createMCPClient as Mock).mockResolvedValue(mockClient);
   });
 
@@ -43,7 +45,10 @@ describe('ServerDiscovery', () => {
         mockProcess
       );
 
-      expect(StdioTransport).toHaveBeenCalledWith(mockProcess);
+      expect(StdioClientTransport).toHaveBeenCalledWith({
+        command: mockProcess.spawnfile,
+        args: mockProcess.spawnargs?.slice(1) || []
+      });
       expect(createMCPClient).toHaveBeenCalled();
       expect(capabilities).toEqual({
         tools: mockClient.tools,

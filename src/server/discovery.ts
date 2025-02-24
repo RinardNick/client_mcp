@@ -1,6 +1,6 @@
 import { MCPTool, MCPResource } from '@modelcontextprotocol/sdk';
 import { createMCPClient } from '@modelcontextprotocol/sdk/client';
-import { StdioTransport } from '@modelcontextprotocol/sdk/transport';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio';
 import { ChildProcess } from 'child_process';
 
 export interface ServerCapabilities {
@@ -75,7 +75,10 @@ export class ServerDiscovery {
       updateState(ServerState.Starting);
 
       // Create SDK transport
-      const transport = new StdioTransport(process);
+      const transport = new StdioClientTransport({
+        command: process.spawnfile,
+        args: process.spawnargs.slice(1), // Remove first arg which is the command
+      });
       updateState(ServerState.Ready, 'SDK transport initialized');
 
       // Initialize MCP client and discover capabilities

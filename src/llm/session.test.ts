@@ -24,9 +24,11 @@ const mockAnthropicInstance = {
 
       // Check message content
       const messages = options.messages || [];
-      const hasToolResult = messages.some(m => m.isToolResult);
+      const hasToolResult = messages.some(
+        (m: { content: string; isToolResult?: boolean }) => m.isToolResult
+      );
       const isListFilesRequest = messages.some(
-        m =>
+        (m: { content: string }) =>
           m.content.toLowerCase().includes('list') &&
           m.content.toLowerCase().includes('file')
       );
@@ -130,7 +132,10 @@ vi.mock('../server/discovery', () => ({
         {
           name: 'list-files',
           description: 'List files in a directory',
-          parameters: { properties: {} },
+          parameters: {
+            type: 'object',
+            properties: {},
+          },
         },
       ],
       resources: [{ name: 'filesystem', type: 'fs' }],
@@ -157,7 +162,10 @@ const mockMCPClient = {
     {
       name: 'list-files',
       description: 'List files in a directory',
-      parameters: { properties: {} },
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
     },
   ],
 };

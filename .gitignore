@@ -36,5 +36,5 @@ coverage/
 .DS_Store
 Thumbs.db 
 
-# MCP Host
-ts_mcp_host/
+
+node_modules/*

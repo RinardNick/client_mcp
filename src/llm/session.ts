@@ -37,7 +37,7 @@ export class SessionManager {
     return tools.map(tool => ({
       name: tool.name,
       input_schema: {
-        type: "object",
+        type: 'object',
         properties: tool.inputSchema?.properties || {},
       },
       description: tool.description || '',
@@ -70,7 +70,7 @@ export class SessionManager {
         toolCallCount: 0,
         maxToolCalls: 2,
         tools: [],
-        resources: []
+        resources: [],
       };
 
       // Initialize Anthropic client
@@ -112,7 +112,7 @@ export class SessionManager {
             session.serverClients.set(serverName, result.client);
             session.tools.push(...result.capabilities.tools);
             session.resources.push(...result.capabilities.resources);
-            
+
             console.log(
               `[SESSION] Added ${result.capabilities.tools.length} tools and ${result.capabilities.resources.length} resources from ${serverName}`
             );
@@ -154,16 +154,21 @@ export class SessionManager {
         // Check if this server has the tool
         const tool = session.tools.find(t => t.name === toolName);
         if (tool) {
-          console.log(`[SESSION] Executing tool ${toolName} with server ${serverName}`);
+          console.log(
+            `[SESSION] Executing tool ${toolName} with server ${serverName}`
+          );
           // Call the tool using the client
           const result = await client.callTool({
             name: toolName,
-            parameters
+            parameters,
           });
           return result;
         }
       } catch (error) {
-        console.error(`[SESSION] Error checking tools in ${serverName}:`, error);
+        console.error(
+          `[SESSION] Error checking tools in ${serverName}:`,
+          error
+        );
       }
     }
     throw new Error(`No server found that can handle tool ${toolName}`);
@@ -186,8 +191,8 @@ export class SessionManager {
 
     try {
       const result = await this.executeTool(
-        session, 
-        message.toolCall.name, 
+        session,
+        message.toolCall.name,
         message.toolCall.parameters
       );
 
@@ -305,9 +310,10 @@ export class SessionManager {
       console.log('[SESSION] Added user message to history');
 
       // Format tools for Anthropic if available
-      const tools = session.tools.length > 0
-        ? this.formatToolsForLLM(session.tools)
-        : undefined;
+      const tools =
+        session.tools.length > 0
+          ? this.formatToolsForLLM(session.tools)
+          : undefined;
       console.log('[SESSION] Formatted tools for Anthropic:', tools);
 
       // Send message to Anthropic
@@ -432,9 +438,10 @@ export class SessionManager {
       });
 
       // Format tools for Anthropic if available
-      const tools = session.tools.length > 0
-        ? this.formatToolsForLLM(session.tools)
-        : undefined;
+      const tools =
+        session.tools.length > 0
+          ? this.formatToolsForLLM(session.tools)
+          : undefined;
       console.log('[SESSION] Formatted tools for Anthropic:', tools);
 
       console.log('[SESSION] Creating stream with messages:', session.messages);
@@ -491,5 +498,41 @@ export class SessionManager {
     const now = new Date();
     now.setMilliseconds(now.getMilliseconds() + 1);
     session.lastActivityAt = now;
+  }
+
+  /**
+   * Clean up all sessions and resources
+   * This method:
+   * 1. Closes all client connections to release transport resources
+   * 2. Stops all server processes
+   * 3. Clears the session store
+   */
+  async cleanup(): Promise<void> {
+    console.log('[SESSION] Cleaning up all sessions and resources');
+
+    // Close all client connections first
+    for (const session of globalSessions.values()) {
+      for (const [serverName, client] of session.serverClients.entries()) {
+        try {
+          console.log(
+            `[SESSION] Closing client connection for server: ${serverName}`
+          );
+          await client.close();
+        } catch (error) {
+          console.error(
+            `[SESSION] Error closing client for ${serverName}:`,
+            error
+          );
+        }
+      }
+    }
+
+    // Stop all server processes
+    console.log('[SESSION] Stopping all server processes');
+    await this.serverLauncher.stopAll();
+
+    // Clear all sessions
+    console.log('[SESSION] Clearing session store');
+    globalSessions.clear();
   }
 }

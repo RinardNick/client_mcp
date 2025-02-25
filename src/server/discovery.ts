@@ -64,7 +64,7 @@ export class ServerDiscovery {
   async discoverCapabilities(
     serverName: string,
     process: ChildProcess
-  ): Promise<{ client: Client, capabilities: ServerCapabilities }> {
+  ): Promise<{ client: Client; capabilities: ServerCapabilities }> {
     let currentState = ServerState.NotStarted;
     const updateState = (newState: ServerState, details?: string) => {
       this.logStateTransition(serverName, currentState, newState, details);
@@ -75,6 +75,21 @@ export class ServerDiscovery {
       updateState(ServerState.Starting);
 
       // Create SDK transport
+      console.log(
+        `[DISCOVERY] Creating transport for server ${serverName} with command: ${
+          process.spawnfile
+        } ${process.spawnargs.slice(1).join(' ')}`
+      );
+
+      // Log the process stdout and stderr for debugging
+      process.stdout?.on('data', data => {
+        console.log(`[SERVER:${serverName}:stdout] ${data.toString().trim()}`);
+      });
+
+      process.stderr?.on('data', data => {
+        console.log(`[SERVER:${serverName}:stderr] ${data.toString().trim()}`);
+      });
+
       const transport = new StdioClientTransport({
         command: process.spawnfile,
         args: process.spawnargs.slice(1), // Remove first arg which is the command
@@ -83,74 +98,125 @@ export class ServerDiscovery {
 
       // Initialize MCP client
       updateState(ServerState.Discovering, 'Creating MCP client');
-      
+
       // Create client with app info
+      console.log(`[DISCOVERY] Creating MCP client for server ${serverName}`);
       const client = new Client(
         {
-          name: "mcp-client",
-          version: "1.0.0"
+          name: 'mcp-client',
+          version: '1.0.0',
         },
         {
           capabilities: {
             tools: {},
-            resources: {}
-          }
+            resources: {},
+          },
         }
       );
 
       // Connect to the server (handles protocol handshake)
-      await client.connect(transport);
-      
+      console.log(`[DISCOVERY] Connecting to server ${serverName}`);
+      try {
+        await client.connect(transport);
+        console.log(
+          `[DISCOVERY] Successfully connected to server ${serverName}`
+        );
+      } catch (error) {
+        console.error(
+          `[DISCOVERY] Error connecting to server ${serverName}:`,
+          error
+        );
+        throw error;
+      }
+
       // Discover server capabilities
-      const toolsResult = await client.listTools({});
-      const resourcesResult = await client.listResources({});
-      
+      console.log(`[DISCOVERY] Listing tools for server ${serverName}`);
+      let toolsResult;
+      try {
+        toolsResult = await client.listTools({});
+        console.log(
+          `[DISCOVERY] Tools result for server ${serverName}:`,
+          JSON.stringify(toolsResult, null, 2)
+        );
+      } catch (error) {
+        console.error(
+          `[DISCOVERY] Error listing tools for server ${serverName}:`,
+          error
+        );
+        throw error;
+      }
+
+      let resources: MCPResource[] = [];
+
+      // Try to get resources, but don't fail if not supported
+      try {
+        console.log(`[DISCOVERY] Listing resources for server ${serverName}`);
+        const resourcesResult = await client.listResources({});
+        console.log(
+          `[DISCOVERY] Resources result for server ${serverName}:`,
+          JSON.stringify(resourcesResult, null, 2)
+        );
+        resources = (resourcesResult.resources || []).map(resource => {
+          const resourceObj: MCPResource = {
+            name: resource.name,
+            type: typeof resource.type === 'string' ? resource.type : 'unknown',
+            description: resource.description,
+          };
+
+          if (resource.uri) {
+            resourceObj.uri = resource.uri;
+          }
+
+          if (resource.mimeType) {
+            resourceObj.mimeType = resource.mimeType;
+          }
+
+          return resourceObj;
+        });
+      } catch (resourceError: unknown) {
+        const errorMessage =
+          resourceError instanceof Error
+            ? resourceError.message
+            : String(resourceError);
+        console.log(
+          `Server ${serverName} does not support resources: ${errorMessage}`
+        );
+        // Continue without resources
+      }
+
       // Convert the SDK's response to our types with proper type handling
       const tools = (toolsResult.tools || []).map(tool => {
+        console.log(
+          `[DISCOVERY] Processing tool ${tool.name} for server ${serverName}`
+        );
         const toolObj: MCPTool = {
           name: tool.name,
-          description: tool.description
+          description: tool.description,
         };
-        
+
         if (tool.inputSchema) {
           toolObj.inputSchema = {
-            type: "object",
-            properties: tool.inputSchema.properties ? 
-              (tool.inputSchema.properties as Record<string, any>) : {},
-            required: Array.isArray(tool.inputSchema.required) ? 
-              tool.inputSchema.required as string[] : undefined
+            type: 'object',
+            properties: tool.inputSchema.properties
+              ? (tool.inputSchema.properties as Record<string, any>)
+              : {},
+            required: Array.isArray(tool.inputSchema.required)
+              ? (tool.inputSchema.required as string[])
+              : undefined,
           };
         }
-        
+
         return toolObj;
       });
-      
-      const resources = (resourcesResult.resources || []).map(resource => {
-        const resourceObj: MCPResource = {
-          name: resource.name,
-          type: typeof resource.type === 'string' ? resource.type : "unknown",
-          description: resource.description
-        };
-        
-        if (resource.uri) {
-          resourceObj.uri = resource.uri;
-        }
-        
-        if (resource.mimeType) {
-          resourceObj.mimeType = resource.mimeType;
-        }
-        
-        return resourceObj;
-      });
-      
+
       // Create the capabilities object
       const capabilities: ServerCapabilities = {
         tools,
         resources,
       };
 
-      if (!capabilities.tools.length && !capabilities.resources.length) {
-        throw new Error('No capabilities discovered');
+      if (!capabilities.tools.length) {
+        throw new Error('No tools discovered');
       }
 
       updateState(
@@ -186,18 +252,20 @@ export class ServerDiscovery {
    */
   async discoverAllCapabilities(
     servers: Map<string, ChildProcess>
-  ): Promise<Map<string, { client: Client, capabilities: ServerCapabilities }>> {
-    const results = new Map<string, { client: Client, capabilities: ServerCapabilities }>();
+  ): Promise<
+    Map<string, { client: Client; capabilities: ServerCapabilities }>
+  > {
+    const results = new Map<
+      string,
+      { client: Client; capabilities: ServerCapabilities }
+    >();
     const errors: Error[] = [];
 
     // Discover capabilities for all servers concurrently
     const discoveries = Array.from(servers.entries()).map(
       async ([name, process]) => {
         try {
-          const result = await this.discoverCapabilities(
-            name,
-            process
-          );
+          const result = await this.discoverCapabilities(name, process);
           results.set(name, result);
         } catch (error) {
           errors.push(

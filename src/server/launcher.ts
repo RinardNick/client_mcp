@@ -256,7 +256,6 @@ export class ServerLauncher {
     serverProcess.on('error', (error: Error) => {
       console.error(`[LAUNCHER] Server ${serverName} error:`, error);
       this.cleanup(serverName);
-      serverProcess.emit('error', new ServerError(error.message, serverName));
     });
 
     serverProcess.on(
@@ -266,12 +265,6 @@ export class ServerLauncher {
           `[LAUNCHER] Server ${serverName} exited with code ${code} and signal ${signal}`
         );
         this.cleanup(serverName);
-        if (code !== 0) {
-          serverProcess.emit(
-            'error',
-            new ServerExitError(serverName, code, signal)
-          );
-        }
       }
     );
   }

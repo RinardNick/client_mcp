@@ -317,7 +317,11 @@ export class ServerLauncher {
     return this.servers.get(name) || null;
   }
 
-  private cleanup(serverName: string): void {
+  /**
+   * Cleanup a specific server
+   * This method is also used for recovery between tests
+   */
+  public cleanup(serverName: string): void {
     const server = this.servers.get(serverName);
     if (server) {
       try {

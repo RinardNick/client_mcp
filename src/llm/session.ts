@@ -143,26 +143,68 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Maps from camelCase tool names to snake_case tool names to handle
+   * different SDK versions that might be in use by various servers
+   */
+  private mapToolName(toolName: string): string[] {
+    // Define mappings to handle different naming conventions
+    const toolMap: Record<string, string[]> = {
+      // camelCase → snake_case mappings
+      'readFile': ['read_file', 'readFile'],
+      'listFiles': ['list_directory', 'list_files', 'listFiles', 'listDirectory'],
+      'executeCommand': ['run_command', 'execute_command', 'executeCommand'],
+      // Add more mappings as needed
+    };
+    
+    // Return array of possible tool names to try
+    if (toolMap[toolName]) {
+      return toolMap[toolName];
+    }
+    
+    // If no mapping exists, try both the original name and a snake_case version
+    const snakeCase = toolName.replace(/([A-Z])/g, "_$1").toLowerCase();
+    return [toolName, snakeCase];
+  }
+
   private async executeTool(
     session: ChatSession,
     toolName: string,
     parameters: Record<string, unknown>
   ): Promise<unknown> {
+    // Get potential tool names to try
+    const potentialToolNames = this.mapToolName(toolName);
+    console.log(`[SESSION] Potential tool names for ${toolName}:`, potentialToolNames);
+    
     // Find the client that can handle this tool
     for (const [serverName, client] of session.serverClients.entries()) {
       try {
-        // Check if this server has the tool
-        const tool = session.tools.find(t => t.name === toolName);
-        if (tool) {
-          console.log(
-            `[SESSION] Executing tool ${toolName} with server ${serverName}`
-          );
-          // Call the tool using the client
-          const result = await client.callTool({
-            name: toolName,
-            parameters,
-          });
-          return result;
+        // Log available tools for debugging
+        console.log(`[SESSION] Server ${serverName} has tools:`, session.tools.map(t => t.name));
+        
+        // Try each potential tool name
+        for (const mappedToolName of potentialToolNames) {
+          // Check if this server has the tool with this name
+          const tool = session.tools.find(t => t.name === mappedToolName);
+          if (tool) {
+            console.log(
+              `[SESSION] Executing tool ${mappedToolName} (mapped from ${toolName}) with server ${serverName}`
+            );
+            // Call the tool using the client
+            try {
+              const result = await client.callTool({
+                name: mappedToolName,
+                parameters,
+              });
+              return result;
+            } catch (error) {
+              console.error(
+                `[SESSION] Error executing tool ${mappedToolName}:`,
+                error
+              );
+              // Continue to try other tool names or servers
+            }
+          }
         }
       } catch (error) {
         console.error(
@@ -171,7 +213,7 @@ export class SessionManager {
         );
       }
     }
-    throw new Error(`No server found that can handle tool ${toolName}`);
+    throw new Error(`No server found that can handle tool ${toolName} (tried: ${potentialToolNames.join(', ')})`);
   }
 
   private async processToolCall(
@@ -507,6 +549,84 @@ export class SessionManager {
    * 2. Stops all server processes
    * 3. Clears the session store
    */
+  /**
+   * Restarts a specific server for a session
+   * Used for error recovery and testing
+   * 
+   * @param sessionId - ID of the session
+   * @param serverName - Name of the server to restart
+   */
+  async _restartServer(sessionId: string, serverName: string): Promise<void> {
+    console.log(`[SESSION] Restarting server ${serverName} for session ${sessionId}`);
+    
+    const session = this.getSession(sessionId);
+    
+    // Get the server configuration from the session
+    const serverConfig = session.config.servers?.[serverName];
+    if (!serverConfig) {
+      throw new Error(`Server configuration not found for ${serverName}`);
+    }
+    
+    // Get the current client
+    const client = session.serverClients.get(serverName);
+    if (client) {
+      // Close the current client
+      try {
+        await client.close();
+      } catch (error) {
+        console.error(`[SESSION] Error closing client for ${serverName}:`, error);
+      }
+      
+      // Remove the client
+      session.serverClients.delete(serverName);
+    }
+    
+    // Stop the existing server if it's still in the launcher
+    try {
+      // Get the current server process
+      const currentProcess = this.serverLauncher.getServerProcess(serverName);
+      if (currentProcess) {
+        // Manually clean up the process
+        try {
+          console.log(`[SESSION] Killing server process: ${serverName}`);
+          currentProcess.kill('SIGKILL');
+        } catch (error) {
+          console.error(`[SESSION] Error killing process: ${error}`);
+        }
+      }
+    } catch (error) {
+      console.error(`[SESSION] Error checking server process: ${error}`);
+    }
+    
+    // Force cleanup in the launcher using public method
+    this.serverLauncher.cleanup(serverName);
+    
+    // Restart the server
+    const serverProcess = await this.serverLauncher.launchServer(
+      serverName,
+      serverConfig
+    );
+    
+    // Discover capabilities
+    const result = await this.serverDiscovery.discoverCapabilities(
+      serverName,
+      serverProcess
+    );
+    
+    // Store client and capabilities
+    session.serverClients.set(serverName, result.client);
+    
+    // Update tools - remove existing tools from this server and add new ones
+    const existingTools = new Set(session.tools.map(tool => tool.name));
+    result.capabilities.tools.forEach(tool => {
+      if (!existingTools.has(tool.name)) {
+        session.tools.push(tool);
+      }
+    });
+    
+    console.log(`[SESSION] Server ${serverName} restarted successfully`);
+  }
+
   async cleanup(): Promise<void> {
     console.log('[SESSION] Cleaning up all sessions and resources');
 

@@ -38,6 +38,24 @@ export enum MCPErrorCode {
 }
 
 export class ServerDiscovery {
+  /**
+   * Normalizes tool names between different versions of the SDK.
+   * This allows us to handle both camelCase and snake_case naming conventions.
+   */
+  private normalizeToolName(toolName: string): string {
+    // Map from snake_case to camelCase (for v0.5.0 to v1.6.0 compatibility)
+    const toolMappings: Record<string, string> = {
+      'read_file': 'readFile',
+      'list_directory': 'listFiles',
+      'list_files': 'listFiles',
+      'run_command': 'executeCommand',
+      'execute_command': 'executeCommand'
+    };
+    
+    // Return the mapped name if it exists, otherwise return the original
+    return toolMappings[toolName] || toolName;
+  }
+  
   private logStateTransition(
     serverName: string,
     from: ServerState,
@@ -82,13 +100,22 @@ export class ServerDiscovery {
       );
 
       // Log the process stdout and stderr for debugging
-      process.stdout?.on('data', data => {
-        console.log(`[SERVER:${serverName}:stdout] ${data.toString().trim()}`);
-      });
+      // Check if stdout and stderr exist and are properly initialized
+      if (process.stdout && typeof process.stdout.on === 'function') {
+        process.stdout.on('data', data => {
+          console.log(`[SERVER:${serverName}:stdout] ${data.toString().trim()}`);
+        });
+      } else {
+        console.log(`[DISCOVERY] Warning: stdout not available for ${serverName}`);
+      }
 
-      process.stderr?.on('data', data => {
-        console.log(`[SERVER:${serverName}:stderr] ${data.toString().trim()}`);
-      });
+      if (process.stderr && typeof process.stderr.on === 'function') {
+        process.stderr.on('data', data => {
+          console.log(`[SERVER:${serverName}:stderr] ${data.toString().trim()}`);
+        });
+      } else {
+        console.log(`[DISCOVERY] Warning: stderr not available for ${serverName}`);
+      }
 
       const transport = new StdioClientTransport({
         command: process.spawnfile,
@@ -189,8 +216,13 @@ export class ServerDiscovery {
         console.log(
           `[DISCOVERY] Processing tool ${tool.name} for server ${serverName}`
         );
+        
+        // Get standard tool name (for backwards compatibility)
+        const toolName = this.normalizeToolName(tool.name);
+        console.log(`[DISCOVERY] Original tool name: ${tool.name}, normalized: ${toolName}`);
+        
         const toolObj: MCPTool = {
-          name: tool.name,
+          name: tool.name, // Keep original name for calling the tool directly
           description: tool.description,
         };
 
@@ -216,7 +248,7 @@ export class ServerDiscovery {
       };
 
       if (!capabilities.tools.length) {
-        throw new Error('No tools discovered');
+        throw new Error('No capabilities discovered');
       }
 
       updateState(

@@ -11,6 +11,16 @@ This document outlines a comprehensive integration testing strategy for the TS-M
 5. Validate server lifecycle management (startup, health checks, shutdown)
 6. Ensure compatibility with common MCP server implementations
 
+## Testing Philosophy
+
+The TS-MCP-Client follows these core testing principles:
+
+1. **Only Mock the LLM**: Integration tests should use actual MCP servers (@modelcontextprotocol/server-filesystem, @rinardnick/mcp-terminal, etc.) rather than mocks. We only mock the Anthropic/Claude API to avoid incurring costs during testing.
+
+2. **Test Real Communication**: Integration tests verify the actual communication protocols between the client and MCP servers to ensure SDK compatibility.
+
+3. **Verify Cross-Version Support**: Tests must verify compatibility between different versions of the MCP SDK by handling differences in naming conventions (e.g., snake_case vs. camelCase tool names).
+
 ## Test Environment Setup
 
 ### 1. Test Environment Configuration

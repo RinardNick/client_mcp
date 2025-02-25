@@ -724,3 +724,195 @@ This project is licensed under the ISC License.
 ## Support
 
 For issues and feature requests, please use the GitHub issue tracker.
+
+## Appendix: Understanding Client Flow and Architecture
+
+This appendix provides a detailed explanation of how the TS-MCP-Client works internally, to help you understand the underlying architecture when integrating it into your applications.
+
+### Data Flow Architecture
+
+The MCP Client follows a structured data flow between components:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Host as Host Application
+    participant Client as TS-MCP-Client
+    participant Server as MCP Servers
+    participant LLM as LLM (Anthropic)
+
+    %% Initialization Flow
+    User->>Host: Open Chat Interface
+    Host->>Client: Initialize Client
+    Client->>Client: Load Config
+    Client->>Server: Launch & Discover Servers
+    Server-->>Client: Tool Capabilities
+    Client->>LLM: Initialize Session with Tools
+    LLM-->>Client: Session Created
+    Client-->>Host: Session Ready + Tools List
+    Host-->>User: Display Interface
+
+    %% Message Flow
+    User->>Host: Send Message
+    Host->>Client: Forward Message
+    Client->>Client: Update Session Activity
+    Client->>LLM: Send w/Tools Context
+    LLM-->>Client: Response w/Tool Call
+
+    %% Start Streaming Updates
+    Client-->>Host: Stream: Thinking
+    Host-->>User: Display Thinking
+
+    Client->>Server: Execute Tool
+    Server-->>Client: Tool Result
+    Client-->>Host: Stream: Tool Result
+    Host-->>User: Display Tool Result
+
+    Client->>LLM: Send Tool Result
+    LLM-->>Client: Final Response
+    Client->>Client: Update Session State
+    Client-->>Host: Stream: Content
+    Host-->>User: Display Content
+```
+
+### Key Technical Concepts
+
+1. **Session Lifecycle Management**
+
+   The client manages the entire session lifecycle:
+   
+   ```typescript
+   // 1. Initialize a session
+   const sessionManager = new SessionManager();
+   const session = await sessionManager.initializeSession(config);
+   const sessionId = session.id;
+   
+   // 2. Send messages using the session ID
+   const response = await sessionManager.sendMessage(sessionId, userMessage);
+   
+   // 3. Use streaming for real-time updates
+   const stream = sessionManager.sendMessageStream(sessionId, userMessage);
+   for await (const chunk of stream) {
+     // Process streaming chunks
+   }
+   ```
+
+2. **Server Management**
+
+   Servers are automatically launched, monitored, and shut down:
+   
+   ```typescript
+   // Defined in config:
+   const config = {
+     servers: {
+       filesystem: {
+         command: 'npx',
+         args: ['-y', '@modelcontextprotocol/server-filesystem', '/workspace'],
+         env: {},
+       },
+     },
+     // Other config...
+   };
+   
+   // The client handles server lifecycle automatically:
+   // - Launches servers when session is initialized
+   // - Health checks servers during operation
+   // - Shuts down servers when session ends/expires
+   ```
+
+3. **Tool Execution Flow**
+
+   When the LLM decides to use a tool:
+   
+   1. Client receives tool call request from LLM
+   2. Client identifies which server can handle the tool
+   3. Client formats the request according to MCP protocol
+   4. Server executes tool and returns results
+   5. Client formats results and sends back to LLM
+   6. LLM incorporates tool results into final response
+
+### Error Handling Strategy
+
+The client implements comprehensive error handling:
+
+```typescript
+try {
+  // Initialize session
+  const session = await sessionManager.initializeSession(config);
+} catch (error) {
+  if (error.code === 'server_launch_error') {
+    // Handle server launch failures
+  } else if (error.code === 'llm_error') {
+    // Handle LLM-specific errors
+  }
+}
+
+// For streaming, errors come through the stream:
+const stream = sessionManager.sendMessageStream(sessionId, userMessage);
+for await (const chunk of stream) {
+  if (chunk.type === 'error') {
+    // Handle error during streaming
+    console.error('Error during tool execution:', chunk.error);
+  }
+}
+```
+
+### Cross-Version Compatibility
+
+The client handles tool name normalization across different MCP SDK versions:
+
+```typescript
+// Internally, the client normalizes tool names between different versions
+// For example, in discovery.ts:
+function normalizeToolName(name: string): string {
+  return name.replace(/^mcp_/, '');
+}
+
+// And in session.ts:
+function mapToolName(name: string): string {
+  return name.startsWith('mcp_') ? name : `mcp_${name}`;
+}
+```
+
+### Performance Optimizations
+
+1. **Connection Pooling**
+   - Reuses connections to servers when possible
+   - Avoids unnecessary server restarts
+
+2. **Capability Caching**
+   - Stores tool capabilities after discovery
+   - Avoids redundant capability queries
+
+3. **Streaming Processing**
+   - Provides real-time updates through streaming
+   - Reduces perceived latency for users
+
+### Integration Architecture Diagram
+
+```mermaid
+graph TD
+    Host[Host Application] --> |Renders UI| UI[User Interface]
+    Host --> |API Calls| Client[TS-MCP-Client]
+    Client --> |Session Management| Store[Session Store]
+    Client --> |Server Control| Servers[MCP Servers]
+    Client --> |LLM Requests| LLM[Anthropic API]
+    Store --> |Persistence| DB[Storage]
+    Servers --> |Tool Execution| Resources[External Resources]
+    
+    subgraph TS-MCP-Client Modules
+        Client --> SessionManager
+        Client --> ServerManager
+        Client --> LLMConnector
+        Client --> ConfigValidator
+    end
+```
+
+This architecture allows for clean separation of concerns, where:
+
+1. **Host Application** focuses on user experience
+2. **TS-MCP-Client** manages all the complex orchestration
+3. **MCP Servers** handle specific tool functionalities
+4. **LLM** provides the intelligence and decision-making
+
+By understanding this flow, you can better integrate the client into your applications and debug any issues that may arise during development.

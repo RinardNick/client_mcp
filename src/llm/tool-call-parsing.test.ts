@@ -11,7 +11,7 @@ function detectToolCall(response: any): { hasToolCall: boolean; toolCall?: any }
   let toolCall = undefined;
   
   // Look for tool calls in the structured response format
-  const toolCalls = response.content?.filter(item => item.type === 'tool_use');
+  const toolCalls = response.content?.filter((item: { type: string }) => item.type === 'tool_use');
   
   if (toolCalls && toolCalls.length > 0) {
     // We have a structured tool call
@@ -27,7 +27,7 @@ function detectToolCall(response: any): { hasToolCall: boolean; toolCall?: any }
   }
   
   // Extract text content
-  const textContent = response.content?.filter(item => item.type === 'text');
+  const textContent = response.content?.filter((item: { type: string }) => item.type === 'text');
   if (textContent && textContent.length > 0) {
     content = textContent[0].text;
   } else if (toolCalls && toolCalls.length > 0) {

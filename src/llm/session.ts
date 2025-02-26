@@ -104,6 +104,7 @@ export class SessionManager {
       // Launch MCP servers if configured
       if (config.servers) {
         console.log('[SESSION] Launching MCP servers');
+        console.log(`[SESSION] Server configurations: ${JSON.stringify(Object.keys(config.servers))}`);
         for (const [serverName, serverConfig] of Object.entries(
           config.servers
         )) {
@@ -132,6 +133,8 @@ export class SessionManager {
             console.log(
               `[SESSION] Added ${result.capabilities.tools.length} tools and ${result.capabilities.resources.length} resources from ${serverName}`
             );
+            console.log(`[SESSION] Registered tools from ${serverName}: ${JSON.stringify(result.capabilities.tools.map(t => t.name))}`);
+            console.log(`[SESSION] Active server clients: ${session.serverClients.size}`);
           } catch (error) {
             console.error(
               `[SESSION] Failed to initialize server ${serverName}:`,
@@ -188,6 +191,10 @@ export class SessionManager {
     toolName: string,
     parameters: Record<string, unknown>
   ): Promise<unknown> {
+    console.log(`[SESSION] Starting tool execution for: ${toolName}`);
+    console.log(`[SESSION] Tool parameters: ${JSON.stringify(parameters)}`);
+    console.log(`[SESSION] Server clients available: ${session.serverClients.size}`);
+    
     // Get potential tool names to try
     const potentialToolNames = this.mapToolName(toolName);
     console.log(`[SESSION] Potential tool names for ${toolName}:`, potentialToolNames);
@@ -525,6 +532,9 @@ export class SessionManager {
       };
 
       // Execute tool call if available
+      console.log(`[SESSION] Tool execution check: hasToolCall=${hasToolCall}, toolCall=${JSON.stringify(toolCall)}, serverClients.size=${session.serverClients.size}`);
+      console.log(`[SESSION] All registered tools: ${JSON.stringify(session.tools.map(t => t.name))}`);
+      
       if (hasToolCall && toolCall && session.serverClients.size > 0) {
         // Add assistant message to history before processing tool call
         session.messages.push(assistantMessage);

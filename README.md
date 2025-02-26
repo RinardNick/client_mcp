@@ -96,6 +96,14 @@ The LLM is responsible for:
 npm install @rinardnick/client_mcp
 ```
 
+### Features
+
+- **Token Usage Monitoring**: Track and report token usage in conversations
+- **Claude 3.7 Thinking Support**: Use Claude's thinking parameter for improved reasoning
+- **Tool Call Limits**: Control and limit tool usage in conversations
+- **Session Management**: Manage chat sessions with persistence and recovery
+- **Server Lifecycle Management**: Automatic launch and monitoring of MCP servers
+
 ### Basic Usage
 
 ```typescript
@@ -107,6 +115,17 @@ const config = {
   api_key: process.env.ANTHROPIC_API_KEY,
   model: 'claude-3-5-sonnet-20241022',
   system_prompt: 'You are a helpful assistant with access to tools.',
+  
+  // Configure tool call limits
+  max_tool_calls: 5,  // Limit tool calls per conversation
+  
+  // Configure thinking for Claude 3.7+ models
+  thinking: {
+    enabled: true,  // Enable thinking (automatically detects compatible models)
+    budget_tokens: 6000  // Optional: customize thinking token budget
+  },
+  
+  // Server configurations
   servers: {
     // Example file system server configuration
     filesystem: {
@@ -128,6 +147,10 @@ const response = await sessionManager.sendMessage(
 );
 
 console.log(response.content);
+
+// 4. Monitor token usage
+const tokenUsage = sessionManager.getSessionTokenUsage(session.id);
+console.log(`Token usage: ${tokenUsage.totalTokens}/${tokenUsage.maxContextTokens} (${tokenUsage.percentUsed}%)`);
 ```
 
 ### Streaming Responses
@@ -142,6 +165,7 @@ const stream = sessionManager.sendMessageStream(
 for await (const chunk of stream) {
   switch (chunk.type) {
     case 'thinking':
+      // Claude 3.7+ thinking process output
       console.log('Thinking:', chunk.content);
       break;
     case 'tool_start':
@@ -161,6 +185,10 @@ for await (const chunk of stream) {
       break;
   }
 }
+
+// After streaming completes, check token usage:
+const tokenMetrics = sessionManager.getSessionTokenUsage(session.id);
+console.log(`Used ${tokenMetrics.totalTokens} of ${tokenMetrics.maxContextTokens} tokens (${tokenMetrics.percentUsed}%)`);
 ```
 
 ### Express Integration
@@ -201,6 +229,14 @@ interface LLMConfig {
   api_key: string; // API key for the LLM
   model: string; // Model identifier
   system_prompt: string; // System prompt for the session
+  
+  // New options
+  max_tool_calls?: number; // Maximum number of tool calls allowed per session
+  thinking?: {
+    enabled?: boolean; // Enable/disable thinking for Claude 3.7+ models
+    budget_tokens?: number; // Token budget for thinking (default: 1/3 of context window)
+  };
+  
   servers?: {
     // Optional server configurations
     [key: string]: {
@@ -261,6 +297,22 @@ const session = sessionManager.getSession(sessionId: string): ChatSession;
 
 // Update session activity timestamp
 sessionManager.updateSessionActivity(sessionId: string): void;
+
+// Get token usage information
+const tokenMetrics = sessionManager.getSessionTokenUsage(sessionId: string): TokenMetrics;
+```
+
+The `TokenMetrics` interface:
+
+```typescript
+interface TokenMetrics {
+  userTokens: number;    // Tokens used by user messages
+  assistantTokens: number;  // Tokens used by assistant messages
+  systemTokens: number;  // Tokens used by system messages
+  totalTokens: number;   // Total tokens used
+  maxContextTokens: number;  // Maximum context window size
+  percentUsed: number;   // Percentage of context window used
+}
 ```
 
 </details>
@@ -276,9 +328,15 @@ sessionManager.updateSessionActivity(sessionId: string): void;
     "type": "claude",
     "api_key": "YOUR_API_KEY_HERE",
     "model": "claude-3-5-sonnet-20241022",
-    "system_prompt": "You are a helpful assistant."
+    "system_prompt": "You are a helpful assistant.",
+    
+    // New options
+    "max_tool_calls": 5,
+    "thinking": {
+      "enabled": true,
+      "budget_tokens": 6000
+    }
   },
-  "max_tool_calls": 2,
   "servers": {
     "filesystem": {
       "command": "npx",

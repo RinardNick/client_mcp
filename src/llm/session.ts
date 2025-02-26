@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { LLMConfig } from '../config/types';
-import { ChatMessage, LLMError } from './types';
+import { ChatMessage, LLMError, TokenMetrics } from './types';
 import { Anthropic } from '@anthropic-ai/sdk';
 import type { Tool } from '@anthropic-ai/sdk/resources/messages/messages';
 import { MCPTool, MCPResource } from './types';
@@ -8,6 +8,12 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ServerLauncher } from '../server/launcher';
 import { ServerDiscovery } from '../server/discovery';
 import { globalSessions } from './store';
+import { 
+  calculateMessageTokens, 
+  getContextLimit, 
+  supportsThinking, 
+  getDefaultThinkingBudget 
+} from './token-counter';
 
 export interface ToolCall {
   name: string;
@@ -25,6 +31,7 @@ export interface ChatSession {
   maxToolCalls: number;
   tools: MCPTool[];
   resources: MCPResource[];
+  tokenMetrics?: TokenMetrics;
 }
 
 export class SessionManager {
@@ -68,9 +75,18 @@ export class SessionManager {
         messages: [],
         serverClients: new Map(),
         toolCallCount: 0,
-        maxToolCalls: 2,
+        maxToolCalls: config.max_tool_calls || 2,  // Use configured limit or default to 2
         tools: [],
         resources: [],
+        // Initialize token metrics
+        tokenMetrics: {
+          userTokens: 0,
+          assistantTokens: 0,
+          systemTokens: 0,
+          totalTokens: 0,
+          maxContextTokens: getContextLimit(config.model),
+          percentUsed: 0
+        },
       };
 
       // Initialize Anthropic client
@@ -358,9 +374,11 @@ export class SessionManager {
           : undefined;
       console.log('[SESSION] Formatted tools for Anthropic:', tools);
 
-      // Send message to Anthropic
-      console.log('[SESSION] Sending message to Anthropic');
-      const response = await this.anthropic.messages.create({
+      // Update token metrics
+      this.updateTokenMetrics(sessionId);
+      
+      // Prepare API request parameters
+      const apiParams: any = {
         model: session.config.model,
         max_tokens: 1024,
         system: session.config.system_prompt,
@@ -371,7 +389,30 @@ export class SessionManager {
             content: msg.content,
           })),
         tools: tools,
-      });
+      };
+      
+      // Add thinking parameter for Claude 3.7+ models
+      if (supportsThinking(session.config.model)) {
+        console.log('[SESSION] Model supports thinking, adding thinking parameter');
+        
+        // If thinking is explicitly disabled in config, don't add it
+        if (session.config.thinking?.enabled !== false) {
+          // Get budget from config or use default
+          const budgetTokens = session.config.thinking?.budget_tokens || 
+                              getDefaultThinkingBudget(session.config.model);
+          
+          apiParams.thinking = {
+            type: "enabled",
+            budget_tokens: budgetTokens
+          };
+          
+          console.log(`[SESSION] Added thinking with budget: ${budgetTokens} tokens`);
+        }
+      }
+      
+      // Send message to Anthropic
+      console.log('[SESSION] Sending message to Anthropic');
+      const response = await this.anthropic.messages.create(apiParams);
 
       // Process response
       const content =
@@ -488,9 +529,11 @@ export class SessionManager {
 
       console.log('[SESSION] Creating stream with messages:', session.messages);
 
-      // Send message to Anthropic with streaming
-      console.log('[SESSION] Creating Anthropic stream');
-      const stream = await this.anthropic.messages.create({
+      // Update token metrics
+      this.updateTokenMetrics(sessionId);
+      
+      // Prepare streaming API request parameters
+      const streamApiParams: any = {
         model: session.config.model,
         max_tokens: 1024,
         messages: session.messages.map(msg => ({
@@ -499,17 +542,56 @@ export class SessionManager {
         })),
         tools: tools,
         stream: true,
-      });
-
-      console.log('[SESSION] Starting to process Anthropic stream');
-      for await (const chunk of stream) {
-        if (
-          chunk.type === 'content_block_delta' &&
-          chunk.delta.type === 'text_delta'
-        ) {
-          // Yield each chunk exactly as it comes from the LLM
-          yield { type: 'content', content: chunk.delta.text };
+      };
+      
+      // Add thinking parameter for Claude 3.7+ models
+      if (supportsThinking(session.config.model)) {
+        console.log('[SESSION] Model supports thinking for streaming, adding thinking parameter');
+        
+        // If thinking is explicitly disabled in config, don't add it
+        if (session.config.thinking?.enabled !== false) {
+          // Get budget from config or use default
+          const budgetTokens = session.config.thinking?.budget_tokens || 
+                              getDefaultThinkingBudget(session.config.model);
+          
+          streamApiParams.thinking = {
+            type: "enabled",
+            budget_tokens: budgetTokens
+          };
+          
+          console.log(`[SESSION] Added thinking with budget: ${budgetTokens} tokens`);
         }
+      }
+
+      try {
+        // Send message to Anthropic with streaming
+        console.log('[SESSION] Creating Anthropic stream');
+        const stream = await this.anthropic.messages.create(streamApiParams);
+
+        console.log('[SESSION] Starting to process Anthropic stream');
+        
+        // Use the Anthropic SDK's built-in async iterator
+        // Cast to any to avoid TypeScript errors with the stream type
+        const iterator = (stream as any)[Symbol.asyncIterator]();
+        let iterResult = await iterator.next();
+        
+        while (!iterResult.done) {
+          const chunk = iterResult.value;
+          
+          if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+            // Content chunks
+            yield { type: 'content', content: chunk.delta.text };
+          } else if (chunk.type === 'thinking') {
+            // Thinking chunks
+            console.log('[SESSION] Received thinking chunk');
+            yield { type: 'thinking', content: chunk.thinking || 'Thinking...' };
+          }
+          
+          iterResult = await iterator.next();
+        }
+      } catch (error) {
+        console.error('[SESSION] Error processing stream:', error);
+        yield { type: 'error', error: 'Error processing stream' };
       }
 
       yield { type: 'done' };
@@ -540,6 +622,37 @@ export class SessionManager {
     const now = new Date();
     now.setMilliseconds(now.getMilliseconds() + 1);
     session.lastActivityAt = now;
+  }
+  
+  /**
+   * Update token metrics for a session based on current messages
+   */
+  updateTokenMetrics(sessionId: string): TokenMetrics {
+    const session = this.getSession(sessionId);
+    
+    // Calculate current token usage
+    const tokenCounts = calculateMessageTokens(session.messages);
+    const maxContextTokens = getContextLimit(session.config.model);
+    
+    // Update token metrics
+    const metrics: TokenMetrics = {
+      userTokens: tokenCounts.userTokens,
+      assistantTokens: tokenCounts.assistantTokens,
+      systemTokens: tokenCounts.systemTokens,
+      totalTokens: tokenCounts.totalTokens,
+      maxContextTokens: maxContextTokens,
+      percentUsed: Math.min(100, Math.floor((tokenCounts.totalTokens / maxContextTokens) * 100))
+    };
+    
+    session.tokenMetrics = metrics;
+    return metrics;
+  }
+  
+  /**
+   * Get current token usage for a session
+   */
+  getSessionTokenUsage(sessionId: string): TokenMetrics {
+    return this.updateTokenMetrics(sessionId);
   }
 
   /**

@@ -20,6 +20,18 @@ export interface MCPResource {
   mimeType?: string;
 }
 
+/**
+ * Token metrics for tracking token usage in a session
+ */
+export interface TokenMetrics {
+  userTokens: number;
+  assistantTokens: number;
+  systemTokens: number;
+  totalTokens: number;
+  maxContextTokens: number;
+  percentUsed: number;
+}
+
 export interface ChatSession {
   id: string;
   config: LLMConfig;
@@ -31,6 +43,8 @@ export interface ChatSession {
   maxToolCalls: number;
   tools: MCPTool[];
   resources: MCPResource[];
+  // New token tracking fields
+  tokenMetrics?: TokenMetrics;
 }
 
 export interface ToolCall {

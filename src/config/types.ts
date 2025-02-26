@@ -1,9 +1,17 @@
+export interface ThinkingConfig {
+  enabled?: boolean;
+  budget_tokens?: number;
+}
+
 export interface LLMConfig {
   type: string;
   api_key: string;
   system_prompt: string;
   model: string;
   servers?: Record<string, ServerConfig>;
+  // New fields
+  max_tool_calls?: number;
+  thinking?: ThinkingConfig;
 }
 
 export interface ServerConfig {

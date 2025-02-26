@@ -27,11 +27,37 @@ export interface TokenMetrics {
   userTokens: number;
   assistantTokens: number;
   systemTokens: number;
+  toolTokens: number;
   totalTokens: number;
   maxContextTokens: number;
   percentUsed: number;
+  recommendation?: string;
 }
 
+/**
+ * Token cost estimates for tracking expenses
+ */
+export interface TokenCost {
+  inputCost: number;
+  outputCost: number;
+  totalCost: number;
+  currency: string;
+}
+
+/**
+ * Context optimization settings
+ */
+export interface ContextSettings {
+  maxTokenLimit?: number; // Override model's default
+  autoTruncate: boolean;
+  preserveSystemMessages: boolean;
+  preserveRecentMessages: number; // Number of recent messages to always keep
+  truncationStrategy: 'oldest-first' | 'selective' | 'summarize';
+}
+
+/**
+ * Chat session interface
+ */
 export interface ChatSession {
   id: string;
   config: LLMConfig;
@@ -43,8 +69,11 @@ export interface ChatSession {
   maxToolCalls: number;
   tools: MCPTool[];
   resources: MCPResource[];
-  // New token tracking fields
+  // Enhanced token tracking fields
   tokenMetrics?: TokenMetrics;
+  tokenCost?: TokenCost;
+  contextSettings?: ContextSettings;
+  isContextWindowCritical?: boolean;
 }
 
 export interface ToolCall {
@@ -58,6 +87,8 @@ export interface ChatMessage {
   hasToolCall?: boolean;
   toolCall?: ToolCall;
   isToolResult?: boolean;
+  tokens?: number; // Track tokens per message
+  timestamp?: Date; // When message was created
 }
 
 export class LLMError extends Error {
@@ -65,4 +96,15 @@ export class LLMError extends Error {
     super(message);
     this.name = 'LLMError';
   }
+}
+
+/**
+ * Token threshold alert
+ */
+export interface TokenAlert {
+  sessionId: string;
+  threshold: number;
+  currentUsage: number;
+  timestamp: Date;
+  recommendation: string;
 }

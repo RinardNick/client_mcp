@@ -182,10 +182,11 @@ describe('SessionManager', () => {
     expect(session.createdAt).toBeInstanceOf(Date);
     expect(session.lastActivityAt).toBeInstanceOf(Date);
     expect(session.messages).toHaveLength(1); // Only system prompt
-    expect(session.messages[0]).toEqual({
-      role: 'system',
-      content: validConfig.system_prompt,
-    });
+    // Check system message with flexible token tracking
+    expect(session.messages[0].role).toEqual('system');
+    expect(session.messages[0].content).toEqual(validConfig.system_prompt);
+    expect(session.messages[0].timestamp).toBeInstanceOf(Date);
+    expect(typeof session.messages[0].tokens).toBe('number');
   });
 
   it('should retrieve an existing session', async () => {
@@ -222,11 +223,103 @@ describe('SessionManager', () => {
 
     const response = await sessionManager.sendMessage(session.id, message);
 
-    expect(response).toEqual({
-      role: 'assistant',
-      content: 'Mock response',
-      hasToolCall: false,
-      toolCall: undefined,
+    // Check response with flexible token tracking
+    expect(response.role).toEqual('assistant');
+    expect(response.content).toEqual('Mock response');
+    expect(response.hasToolCall).toEqual(false);
+    expect(response.toolCall).toBeUndefined();
+    expect(response.timestamp).toBeInstanceOf(Date);
+    expect(typeof response.tokens).toBe('number');
+  });
+
+  describe('Token Tracking and Optimization', () => {
+    it('should track token usage properly', async () => {
+      const session = await sessionManager.initializeSession(validConfig);
+      session.serverClients.set('test', mockMCPClient as unknown as Client);
+      
+      // Get initial token metrics
+      const initialMetrics = sessionManager.getSessionTokenUsage(session.id);
+      expect(initialMetrics).toBeDefined();
+      expect(initialMetrics.systemTokens).toBeGreaterThan(0); // System prompt
+      expect(initialMetrics.userTokens).toBe(0); // No user messages yet
+      expect(initialMetrics.assistantTokens).toBe(0); // No assistant messages yet
+      expect(initialMetrics.totalTokens).toBeGreaterThan(0);
+      expect(initialMetrics.percentUsed).toBeGreaterThanOrEqual(0);
+      expect(initialMetrics.maxContextTokens).toBeGreaterThan(0);
+      expect(initialMetrics.recommendation).toBeDefined();
+      
+      // Send a message and check updated metrics
+      await sessionManager.sendMessage(session.id, 'Hello, how are you?');
+      const updatedMetrics = sessionManager.getSessionTokenUsage(session.id);
+      
+      expect(updatedMetrics.userTokens).toBeGreaterThan(0); // User message added
+      expect(updatedMetrics.assistantTokens).toBeGreaterThan(0); // Assistant response added
+      expect(updatedMetrics.totalTokens).toBeGreaterThan(initialMetrics.totalTokens);
+      expect(updatedMetrics.percentUsed).toBeGreaterThanOrEqual(initialMetrics.percentUsed);
+    });
+    
+    it('should provide cost estimation', async () => {
+      const session = await sessionManager.initializeSession(validConfig);
+      session.serverClients.set('test', mockMCPClient as unknown as Client);
+      
+      // Send a message to generate some token usage
+      await sessionManager.sendMessage(session.id, 'Hello, how are you?');
+      
+      // Get cost estimate
+      const costEstimate = sessionManager.getTokenCostEstimate(session.id);
+      
+      expect(costEstimate).toBeDefined();
+      expect(costEstimate.inputCost).toBeGreaterThanOrEqual(0);
+      expect(costEstimate.outputCost).toBeGreaterThanOrEqual(0);
+      expect(costEstimate.totalCost).toBeGreaterThanOrEqual(0);
+      expect(costEstimate.currency).toBe('USD');
+    });
+    
+    it('should apply context optimization when needed', async () => {
+      const session = await sessionManager.initializeSession(validConfig);
+      session.serverClients.set('test', mockMCPClient as unknown as Client);
+      
+      // Configure context optimization settings
+      sessionManager.setContextSettings(session.id, {
+        autoTruncate: true,
+        preserveSystemMessages: true,
+        preserveRecentMessages: 2,
+        truncationStrategy: 'oldest-first'
+      });
+      
+      // Artificially add messages to simulate a long conversation
+      for (let i = 0; i < 10; i++) {
+        session.messages.push({
+          role: 'user',
+          content: `Message ${i}`,
+          timestamp: new Date(),
+          tokens: 10
+        });
+        session.messages.push({
+          role: 'assistant',
+          content: `Response ${i}`,
+          timestamp: new Date(),
+          tokens: 10
+        });
+      }
+      
+      // Force the context to be critical
+      session.isContextWindowCritical = true;
+      
+      // Count messages before optimization
+      const beforeCount = session.messages.length;
+      
+      // Apply optimization
+      const optimizedMetrics = sessionManager.optimizeContext(session.id);
+      
+      // Count messages after optimization
+      const afterCount = session.messages.length;
+      
+      // Verify optimization worked
+      expect(afterCount).toBeLessThan(beforeCount);
+      expect(afterCount).toBe(3); // System message + 2 recent messages
+      expect(session.messages[0].role).toBe('system'); // System message preserved
+      expect(optimizedMetrics).toBeDefined();
     });
   });
 

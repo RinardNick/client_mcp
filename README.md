@@ -44,12 +44,13 @@ npm install @rinardnick/client_mcp
 
 ### Features
 
-- Structured Tool Call Support - Works with Claude's latest API format
-- Token Usage Monitoring - Track conversation token usage
-- Claude 3.7 Thinking Support - Enable Claude's thinking process for better reasoning
-- Tool Call Limits - Control tool usage in conversations
-- Session Management - Manage chat sessions with persistence
-- Server Lifecycle Management - Automatic launch and monitoring of MCP servers
+- **Structured Tool Call Support** - Works with Claude's latest API format for tool calls
+- **Enhanced Token Management** - Accurate token counting, cost estimation, and context optimization
+- **Claude 3.7 Thinking Support** - Enable Claude's thinking process for better reasoning
+- **Tool Call Limits** - Control tool usage in conversations
+- **Session Management** - Manage chat sessions with persistence
+- **Server Lifecycle Management** - Automatic launch and monitoring of MCP servers
+- **Context Window Optimization** - Smart truncation of conversation history when limits approach
 
 ## Core Usage
 
@@ -70,6 +71,13 @@ const config = {
   thinking: {
     enabled: true,  // For Claude 3.7+ models
     budget_tokens: 6000  // Optional thinking token budget
+  },
+  token_optimization: {
+    enabled: true,  // Enable token optimization
+    auto_truncate: true,  // Automatically truncate when approaching limits
+    preserve_system_messages: true,  // Always keep system messages
+    preserve_recent_messages: 5,  // Keep 5 most recent messages
+    truncation_strategy: 'oldest-first'  // How to truncate conversation
   },
   
   // Server configurations
@@ -133,12 +141,42 @@ for await (const chunk of stream) {
 }
 ```
 
-### Track Token Usage
+### Token Management and Context Optimization
 
 ```typescript
-// After interaction, check token usage
+// Track detailed token usage
 const tokenMetrics = sessionManager.getSessionTokenUsage(sessionId);
-console.log(`Token usage: ${tokenMetrics.totalTokens}/${tokenMetrics.maxContextTokens} tokens (${tokenMetrics.percentUsed}%)`);
+console.log(`Token usage breakdown:
+  - User tokens: ${tokenMetrics.userTokens}
+  - Assistant tokens: ${tokenMetrics.assistantTokens}
+  - System tokens: ${tokenMetrics.systemTokens}
+  - Tool tokens: ${tokenMetrics.toolTokens}
+  - Total: ${tokenMetrics.totalTokens}/${tokenMetrics.maxContextTokens} (${tokenMetrics.percentUsed}%)
+  - Recommendation: ${tokenMetrics.recommendation}
+`);
+
+// Get cost estimates
+const costEstimate = sessionManager.getTokenCostEstimate(sessionId);
+console.log(`Cost breakdown:
+  - Input cost: $${costEstimate.inputCost.toFixed(4)}
+  - Output cost: $${costEstimate.outputCost.toFixed(4)}
+  - Total cost: $${costEstimate.totalCost.toFixed(4)}
+`);
+
+// Configure context optimization settings
+sessionManager.setContextSettings(sessionId, {
+  autoTruncate: true,                 // Enable automatic truncation
+  preserveSystemMessages: true,       // Always keep system messages
+  preserveRecentMessages: 6,          // Keep the 6 most recent messages
+  truncationStrategy: 'oldest-first'  // Remove oldest messages first
+});
+
+// Manually trigger context optimization when needed
+if (tokenMetrics.percentUsed > 80) {
+  console.log("Context window filling up, optimizing...");
+  const optimizedMetrics = sessionManager.optimizeContext(sessionId);
+  console.log(`Reduced to ${optimizedMetrics.totalTokens} tokens (${optimizedMetrics.percentUsed}%)`);
+}
 ```
 
 ## Message Flow Sequence
@@ -349,9 +387,18 @@ interface LLMConfig {
   system_prompt: string;     // System prompt for the session
   
   max_tool_calls?: number;   // Maximum tool calls per session
+  
   thinking?: {
     enabled?: boolean;       // Enable thinking for Claude 3.7+
     budget_tokens?: number;  // Token budget for thinking
+  };
+  
+  token_optimization?: {
+    enabled?: boolean;                // Enable token optimization
+    auto_truncate?: boolean;          // Automatically truncate when context window fills
+    preserve_system_messages?: boolean; // Keep system messages during truncation
+    preserve_recent_messages?: number;  // Number of recent messages to preserve
+    truncation_strategy?: 'oldest-first' | 'selective' | 'summarize'; // How to truncate
   };
   
   servers?: {

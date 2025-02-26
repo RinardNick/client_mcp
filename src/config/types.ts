@@ -1,18 +1,6 @@
-export interface ThinkingConfig {
-  enabled?: boolean;
-  budget_tokens?: number;
-}
-
-export interface LLMConfig {
-  type: string;
-  api_key: string;
-  system_prompt: string;
-  model: string;
-  servers?: Record<string, ServerConfig>;
-  // New fields
-  max_tool_calls?: number;
-  thinking?: ThinkingConfig;
-}
+/**
+ * Configuration types for the MCP client
+ */
 
 export interface ServerConfig {
   command: string;
@@ -22,11 +10,32 @@ export interface ServerConfig {
 
 export interface MCPConfig {
   llm: LLMConfig;
-  max_tool_calls?: number;
-  servers?: Record<string, ServerConfig>;
+  max_tool_calls: number;
+  servers: Record<string, ServerConfig>;
 }
 
-// Error types for configuration validation
+export interface LLMConfig {
+  type: string;
+  api_key: string;
+  model: string;
+  system_prompt: string;
+  max_tool_calls?: number;
+  use_tools?: boolean;
+  servers?: Record<string, ServerConfig>;
+  thinking?: {
+    enabled?: boolean;
+    budget_tokens?: number;
+  };
+  // New token optimization settings
+  token_optimization?: {
+    enabled?: boolean;
+    auto_truncate?: boolean;
+    preserve_system_messages?: boolean;
+    preserve_recent_messages?: number;
+    truncation_strategy?: 'oldest-first' | 'selective' | 'summarize';
+  };
+}
+
 export class ConfigurationError extends Error {
   constructor(message: string) {
     super(message);

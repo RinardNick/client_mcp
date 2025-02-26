@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { LLMConfig } from '../config/types';
-import { ChatMessage, LLMError, TokenMetrics } from './types';
+import { ChatMessage, LLMError, TokenMetrics, TokenCost, ContextSettings, TokenAlert } from './types';
 import { Anthropic } from '@anthropic-ai/sdk';
 import type { Tool } from '@anthropic-ai/sdk/resources/messages/messages';
 import { MCPTool, MCPResource } from './types';
@@ -10,29 +10,19 @@ import { ServerDiscovery } from '../server/discovery';
 import { globalSessions } from './store';
 import { 
   calculateMessageTokens, 
+  calculateTokenCost,
   getContextLimit, 
   supportsThinking, 
-  getDefaultThinkingBudget 
+  getDefaultThinkingBudget,
+  isContextWindowCritical,
+  getContextRecommendation,
+  calculateContextUsage,
+  countTokens
 } from './token-counter';
 
-export interface ToolCall {
-  name: string;
-  parameters: Record<string, unknown>;
-}
-
-export interface ChatSession {
-  id: string;
-  config: LLMConfig;
-  createdAt: Date;
-  lastActivityAt: Date;
-  messages: ChatMessage[];
-  serverClients: Map<string, Client>;
-  toolCallCount: number;
-  maxToolCalls: number;
-  tools: MCPTool[];
-  resources: MCPResource[];
-  tokenMetrics?: TokenMetrics;
-}
+// Note: Both of these interfaces are now imported from types.ts
+// So we don't need to re-declare them here
+import { ToolCall, ChatSession } from './types';
 
 export class SessionManager {
   private anthropic!: Anthropic;
@@ -41,7 +31,7 @@ export class SessionManager {
 
   private formatToolsForLLM(tools: MCPTool[]): Tool[] {
     console.log('[SESSION] Formatting tools for LLM:', tools);
-    return tools.map(tool => ({
+    return tools.map((tool: MCPTool) => ({
       name: tool.name,
       input_schema: {
         type: 'object',
@@ -78,15 +68,31 @@ export class SessionManager {
         maxToolCalls: config.max_tool_calls || 2,  // Use configured limit or default to 2
         tools: [],
         resources: [],
-        // Initialize token metrics
+        // Initialize token metrics with enhanced tracking
         tokenMetrics: {
           userTokens: 0,
           assistantTokens: 0,
           systemTokens: 0,
+          toolTokens: 0,
           totalTokens: 0,
           maxContextTokens: getContextLimit(config.model),
-          percentUsed: 0
+          percentUsed: 0,
+          recommendation: 'Context window usage is low.'
         },
+        tokenCost: {
+          inputCost: 0,
+          outputCost: 0,
+          totalCost: 0,
+          currency: 'USD'
+        },
+        // Initialize context settings from config or defaults
+        contextSettings: {
+          autoTruncate: config.token_optimization?.auto_truncate || false,
+          preserveSystemMessages: config.token_optimization?.preserve_system_messages !== false, // default to true
+          preserveRecentMessages: config.token_optimization?.preserve_recent_messages || 4,
+          truncationStrategy: config.token_optimization?.truncation_strategy || 'oldest-first'
+        },
+        isContextWindowCritical: false,
       };
 
       // Initialize Anthropic client
@@ -95,11 +101,19 @@ export class SessionManager {
         apiKey: config.api_key,
       });
 
-      // Store the system prompt in the session
-      session.messages.push({
-        role: 'system',
+      // Store the system prompt in the session with token count
+      const systemMessage = {
+        role: 'system' as const,
         content: config.system_prompt,
-      });
+        timestamp: new Date(),
+        tokens: countTokens(config.system_prompt, config.model)
+      };
+      session.messages.push(systemMessage);
+      
+      // Update token metrics for system message
+      session.tokenMetrics!.systemTokens += systemMessage.tokens;
+      session.tokenMetrics!.totalTokens += systemMessage.tokens;
+      session.tokenMetrics!.percentUsed = calculateContextUsage(session.tokenMetrics!.totalTokens, config.model);
 
       // Launch MCP servers if configured
       if (config.servers) {
@@ -400,12 +414,24 @@ export class SessionManager {
         });
       }
 
-      // Add user message to history
-      session.messages.push({
-        role: 'user',
+      // Add user message to history with token count
+      const userMessage = {
+        role: 'user' as const,
         content: message,
-      });
-      console.log('[SESSION] Added user message to history');
+        timestamp: new Date(),
+        tokens: countTokens(message, session.config.model)
+      };
+      session.messages.push(userMessage);
+      console.log(`[SESSION] Added user message to history (${userMessage.tokens} tokens)`);
+      
+      // Update token metrics for the new message
+      this.updateTokenMetrics(sessionId);
+      
+      // Check if context window is approaching limits
+      if (session.isContextWindowCritical && session.contextSettings?.autoTruncate) {
+        console.log('[SESSION] Context window approaching limits, optimizing context');
+        this.optimizeContext(sessionId);
+      }
 
       // Format tools for Anthropic if available
       const tools =
@@ -523,12 +549,14 @@ export class SessionManager {
         }
       }
 
-      // Create assistant message
+      // Create assistant message with token count
       const assistantMessage: ChatMessage = {
         role: 'assistant',
         content,
         hasToolCall,
         toolCall,
+        timestamp: new Date(),
+        tokens: countTokens(content, session.config.model)
       };
 
       // Execute tool call if available
@@ -721,33 +749,153 @@ export class SessionManager {
   
   /**
    * Update token metrics for a session based on current messages
+   * Now with enhanced metrics and cost calculation
    */
   updateTokenMetrics(sessionId: string): TokenMetrics {
     const session = this.getSession(sessionId);
+    const modelName = session.config.model;
     
-    // Calculate current token usage
-    const tokenCounts = calculateMessageTokens(session.messages);
-    const maxContextTokens = getContextLimit(session.config.model);
+    // Calculate current token usage with the enhanced method
+    const tokenCounts = calculateMessageTokens(session.messages, modelName);
+    const maxContextTokens = getContextLimit(modelName);
+    const percentUsed = calculateContextUsage(tokenCounts.totalTokens, modelName);
+    
+    // Calculate if context is approaching critical limits
+    const isCritical = isContextWindowCritical(tokenCounts.totalTokens, modelName);
+    const recommendation = getContextRecommendation(tokenCounts.totalTokens, modelName);
     
     // Update token metrics
     const metrics: TokenMetrics = {
       userTokens: tokenCounts.userTokens,
       assistantTokens: tokenCounts.assistantTokens,
       systemTokens: tokenCounts.systemTokens,
+      toolTokens: tokenCounts.toolTokens,
       totalTokens: tokenCounts.totalTokens,
       maxContextTokens: maxContextTokens,
-      percentUsed: Math.min(100, Math.floor((tokenCounts.totalTokens / maxContextTokens) * 100))
+      percentUsed: percentUsed,
+      recommendation: recommendation
     };
     
+    // Update cost estimation
+    const costEstimate = calculateTokenCost(tokenCounts, modelName);
+    
+    // Update session data
     session.tokenMetrics = metrics;
+    session.tokenCost = costEstimate;
+    session.isContextWindowCritical = isCritical;
+    
+    // Log meaningful information
+    console.log(`[SESSION] Updated token metrics for ${sessionId}:`, {
+      totalTokens: metrics.totalTokens,
+      percentUsed: metrics.percentUsed,
+      isCritical: isCritical,
+      estimatedCost: `$${costEstimate.totalCost.toFixed(4)}`
+    });
+    
     return metrics;
   }
   
   /**
-   * Get current token usage for a session
+   * Get current token usage for a session with recommendations
    */
   getSessionTokenUsage(sessionId: string): TokenMetrics {
     return this.updateTokenMetrics(sessionId);
+  }
+  
+  /**
+   * Get cost estimates for a session
+   */
+  getTokenCostEstimate(sessionId: string): TokenCost {
+    const session = this.getSession(sessionId);
+    
+    // Make sure metrics are up to date
+    this.updateTokenMetrics(sessionId);
+    
+    if (!session.tokenCost) {
+      throw new LLMError('Token cost not available for session');
+    }
+    
+    return session.tokenCost;
+  }
+  
+  /**
+   * Set context optimization settings
+   */
+  setContextSettings(sessionId: string, settings: Partial<ContextSettings>): void {
+    const session = this.getSession(sessionId);
+    
+    if (!session.contextSettings) {
+      session.contextSettings = {
+        autoTruncate: false,
+        preserveSystemMessages: true,
+        preserveRecentMessages: 4,
+        truncationStrategy: 'oldest-first'
+      };
+    }
+    
+    // Update only provided settings
+    session.contextSettings = {
+      ...session.contextSettings,
+      ...settings
+    };
+    
+    console.log(`[SESSION] Updated context settings for ${sessionId}:`, session.contextSettings);
+  }
+  
+  /**
+   * Apply basic context optimization based on settings
+   */
+  optimizeContext(sessionId: string): TokenMetrics {
+    const session = this.getSession(sessionId);
+    
+    if (!session.contextSettings?.autoTruncate) {
+      console.log(`[SESSION] Context optimization skipped (autoTruncate disabled)`);
+      return this.getSessionTokenUsage(sessionId);
+    }
+    
+    if (!session.isContextWindowCritical) {
+      console.log(`[SESSION] Context optimization not needed (usage not critical)`);
+      return this.getSessionTokenUsage(sessionId);
+    }
+    
+    console.log(`[SESSION] Applying context optimization for ${sessionId}`);
+    
+    // Implement the oldest-first truncation strategy
+    if (session.contextSettings.truncationStrategy === 'oldest-first') {
+      this.truncateOldestMessages(session);
+    }
+    
+    // Update token metrics after optimization
+    return this.updateTokenMetrics(sessionId);
+  }
+  
+  /**
+   * Truncate oldest messages, preserving system messages and recent messages
+   */
+  private truncateOldestMessages(session: ChatSession): void {
+    const { preserveSystemMessages, preserveRecentMessages } = session.contextSettings!;
+    
+    // Create a copy of messages to work with
+    const messages = [...session.messages];
+    
+    // Separate system messages if we need to preserve them
+    const systemMessages = preserveSystemMessages 
+      ? messages.filter(m => m.role === 'system')
+      : [];
+      
+    // Get non-system messages
+    const nonSystemMessages = messages.filter(m => m.role !== 'system');
+    
+    // Keep only the most recent N messages
+    const recentMessages = nonSystemMessages.slice(-preserveRecentMessages);
+    
+    // Combine system messages with recent messages
+    const newMessages = [...systemMessages, ...recentMessages];
+    
+    console.log(`[SESSION] Truncated messages from ${messages.length} to ${newMessages.length}`);
+    
+    // Update session messages
+    session.messages = newMessages;
   }
 
   /**

@@ -1,12 +1,37 @@
 import { SessionManager } from './llm/session';
-import { ChatSession, ChatMessage, LLMError } from './llm/types';
+import { 
+  ChatSession, 
+  ChatMessage, 
+  LLMError, 
+  TokenMetrics, 
+  TokenCost, 
+  ContextSettings,
+  TokenAlert
+} from './llm/types';
 import { LLMConfig, ConfigurationError, ServerConfig } from './config/types';
 import express, { Request, Response, Router } from 'express';
 
 export { SessionManager } from './llm/session';
-export { ChatSession, ChatMessage, LLMError } from './llm/types';
+export { 
+  ChatSession, 
+  ChatMessage, 
+  LLMError, 
+  TokenMetrics, 
+  TokenCost, 
+  ContextSettings,
+  TokenAlert 
+} from './llm/types';
 export { LLMConfig, ConfigurationError, ServerConfig } from './config/types';
 export { loadConfig } from './config/loader';
+export {
+  countTokens,
+  calculateMessageTokens,
+  calculateTokenCost,
+  getContextLimit,
+  isContextWindowCritical,
+  getContextRecommendation,
+  calculateContextUsage
+} from './llm/token-counter';
 
 // Helper functions
 export async function createSession(config: LLMConfig): Promise<ChatSession> {

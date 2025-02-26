@@ -98,11 +98,13 @@ npm install @rinardnick/client_mcp
 
 ### Features
 
+- **Full Structured Tool Call Support**: Works with Claude's latest API format for tool calls
 - **Token Usage Monitoring**: Track and report token usage in conversations
 - **Claude 3.7 Thinking Support**: Use Claude's thinking parameter for improved reasoning
 - **Tool Call Limits**: Control and limit tool usage in conversations
 - **Session Management**: Manage chat sessions with persistence and recovery
 - **Server Lifecycle Management**: Automatic launch and monitoring of MCP servers
+- **Legacy Tool Support**: Maintains backward compatibility with older <tool> tag format
 
 ### Basic Usage
 
@@ -153,10 +155,11 @@ const tokenUsage = sessionManager.getSessionTokenUsage(session.id);
 console.log(`Token usage: ${tokenUsage.totalTokens}/${tokenUsage.maxContextTokens} (${tokenUsage.percentUsed}%)`);
 ```
 
-### Streaming Responses
+### Streaming Responses with Thinking and Tool Calls
 
 ```typescript
 // Stream responses for real-time updates
+// This will automatically handle tool calls and thinking in Claude 3.7+
 const stream = sessionManager.sendMessageStream(
   session.id,
   'What files are in the current directory?'
@@ -165,23 +168,39 @@ const stream = sessionManager.sendMessageStream(
 for await (const chunk of stream) {
   switch (chunk.type) {
     case 'thinking':
-      // Claude 3.7+ thinking process output
+      // Claude 3.7+ thinking process output - only if using a supported model
       console.log('Thinking:', chunk.content);
+      updateUI('thinking', chunk.content); // Show thinking process to user
       break;
+      
     case 'tool_start':
+      // Indicates a tool is about to be executed
       console.log('Tool starting:', chunk.content);
+      updateUI('tool', `Starting tool: ${chunk.content}`);
       break;
+      
     case 'tool_result':
+      // Results from the tool execution
       console.log('Tool result:', chunk.content);
+      updateUI('tool-result', chunk.content);
       break;
+      
     case 'content':
+      // Regular message content from Claude
       console.log('Content:', chunk.content);
+      appendToUI('content', chunk.content); // Build message incrementally
       break;
+      
     case 'error':
+      // Error during processing
       console.error('Error:', chunk.error);
+      updateUI('error', chunk.error);
       break;
+      
     case 'done':
+      // Stream is complete
       console.log('Stream complete');
+      finalizeUI(); // Complete the message rendering
       break;
   }
 }
@@ -365,6 +384,114 @@ const config = await loadConfig('config.json');
 ```
 
 </details>
+
+## Tool Calls, Thinking, and Token Usage Guide
+
+### Working with Structured Tool Calls
+
+The client automatically handles both modern structured tool calls from Claude as well as legacy `<tool>` tag format. When Claude decides to use a tool, the client will:
+
+1. Detect the tool call in the structured response format
+2. Execute the tool with the appropriate server
+3. Return the result to Claude for further processing
+4. Stream tool execution events to the host application
+
+Here's an example of how structured tool calls work:
+
+```typescript
+// Claude will return structured tool calls in the format:
+{
+  content: [
+    {
+      type: 'tool_use',
+      id: 'tool_1',
+      name: 'list_files',
+      input: {
+        path: '/home/user'
+      }
+    },
+    {
+      type: 'text',
+      text: 'I need to check what files are in your directory.'
+    }
+  ]
+}
+
+// The client will automatically detect and execute these tool calls
+// No special handling needed in your host application!
+```
+
+### Using Claude 3.7 Thinking Feature
+
+Claude 3.7+ models support the "thinking" parameter, which enables the model to perform more thorough reasoning about complex tasks. The client automatically enables this feature when using a compatible model:
+
+```typescript
+// Configure thinking in your config:
+const config = {
+  type: 'claude',
+  api_key: process.env.ANTHROPIC_API_KEY,
+  model: 'claude-3-7-sonnet-20250219', // Must be Claude 3.7 or higher
+  system_prompt: 'You are a helpful assistant with access to tools.',
+  
+  // Optional thinking configuration
+  thinking: {
+    enabled: true, // Default is true for 3.7+ models
+    budget_tokens: 8000 // Optional: specify token budget for thinking
+  }
+};
+
+// The client will automatically send thinking content in the stream
+// Your application can display this to show the model's reasoning process
+```
+
+### Token Usage Monitoring
+
+Track and manage token usage with the built-in token monitoring features:
+
+```typescript
+// After sending messages, check token usage:
+const tokenMetrics = sessionManager.getSessionTokenUsage(session.id);
+
+console.log(`Token usage stats:
+- User tokens: ${tokenMetrics.userTokens}
+- Assistant tokens: ${tokenMetrics.assistantTokens}
+- System tokens: ${tokenMetrics.systemTokens}
+- Total tokens: ${tokenMetrics.totalTokens}
+- Max context size: ${tokenMetrics.maxContextTokens}
+- Context used: ${tokenMetrics.percentUsed}%`);
+
+// Use this information to:
+// 1. Display token usage to users
+// 2. Implement budgeting features
+// 3. Proactively manage long conversations
+```
+
+### Limiting Tool Call Usage
+
+You can control how many tool calls the assistant can make to prevent excessive resource usage:
+
+```typescript
+// Configure tool call limits in your config:
+const config = {
+  type: 'claude',
+  api_key: process.env.ANTHROPIC_API_KEY,
+  model: 'claude-3-5-sonnet-20241022',
+  system_prompt: 'You are a helpful assistant with access to tools.',
+  
+  // Set max tool calls
+  max_tool_calls: 5, // Simple way to limit tool calls per session
+  
+  // Or use more granular control:
+  max_tool_calls: {
+    per_message: 3,  // Limit calls within a single response
+    per_session: 20  // Limit total calls across the session
+  }
+};
+
+// The client automatically enforces these limits
+// If the LLM tries to make more calls than allowed, it will receive a message
+// explaining that the limit has been reached
+```
 
 ## Implementation Guide for Host Applications
 

@@ -302,19 +302,52 @@ export class SessionManager {
       };
 
       // Check if the follow-up response contains another tool call
-      const nextToolMatch = followUpContent.match(/<tool>(.*?)<\/tool>/s);
-      if (nextToolMatch && nextToolMatch[1]) {
-        followUpMessage.hasToolCall = true;
-        const toolContent = nextToolMatch[1].trim();
-        const spaceIndex = toolContent.indexOf(' ');
-        if (spaceIndex > -1) {
-          followUpMessage.toolCall = {
-            name: toolContent.slice(0, spaceIndex),
-            parameters: JSON.parse(toolContent.slice(spaceIndex + 1)),
-          };
+      // First, look for structured tool calls
+      let hasNextToolCall = false;
+      let nextToolCall = undefined;
+      
+      if (followUpResponse.content) {
+        // Look for structured tool calls
+        const toolCalls = followUpResponse.content.filter(item => item.type === 'tool_use');
+        
+        if (toolCalls && toolCalls.length > 0) {
+          console.log('[SESSION] Found another structured tool call in follow-up response');
+          const toolUse = toolCalls[0];
+          
+          if (toolUse.id && toolUse.name && toolUse.input) {
+            hasNextToolCall = true;
+            nextToolCall = {
+              name: toolUse.name,
+              parameters: toolUse.input
+            };
+          }
         }
+      }
+      
+      // Fall back to legacy format if no structured tool call found
+      if (!hasNextToolCall) {
+        const nextToolMatch = followUpContent.match(/<tool>(.*?)<\/tool>/s);
+        if (nextToolMatch && nextToolMatch[1]) {
+          console.log('[SESSION] Found another legacy tool call in follow-up response');
+          hasNextToolCall = true;
+          const toolContent = nextToolMatch[1].trim();
+          const spaceIndex = toolContent.indexOf(' ');
+          if (spaceIndex > -1) {
+            nextToolCall = {
+              name: toolContent.slice(0, spaceIndex),
+              parameters: JSON.parse(toolContent.slice(spaceIndex + 1)),
+            };
+          }
+        }
+      }
+      
+      // Process next tool call if found
+      if (hasNextToolCall && nextToolCall) {
+        followUpMessage.hasToolCall = true;
+        followUpMessage.toolCall = nextToolCall;
         session.messages.push(followUpMessage);
         session.toolCallCount++; // Increment counter before processing next tool
+        console.log('[SESSION] Processing next tool call:', nextToolCall);
         return await this.processToolCall(sessionId, followUpMessage);
       }
 
@@ -414,38 +447,71 @@ export class SessionManager {
       console.log('[SESSION] Sending message to Anthropic');
       const response = await this.anthropic.messages.create(apiParams);
 
-      // Process response
-      const content =
-        response.content[0]?.type === 'text' ? response.content[0].text : null;
-
-      if (!content) {
-        console.error('[SESSION] Empty response from LLM');
-        throw new LLMError('Empty response from LLM');
-      }
-
-      // Check for tool invocation
-      console.log('[SESSION] Checking for tool invocation in response');
-      const toolMatch = content.match(/<tool>(.*?)<\/tool>/s);
+      // Process response - check for tool calls first
+      console.log('[SESSION] Checking for tool calls in response');
+      console.log('[SESSION] Response content:', JSON.stringify(response.content));
+      
+      let content = '';
       let hasToolCall = false;
       let toolCall = undefined;
-
-      if (toolMatch && toolMatch[1]) {
-        console.log('[SESSION] Tool call detected in response');
-        hasToolCall = true;
-        const toolContent = toolMatch[1].trim();
-        const spaceIndex = toolContent.indexOf(' ');
-        if (spaceIndex > -1) {
-          const name = toolContent.slice(0, spaceIndex);
-          const paramsStr = toolContent.slice(spaceIndex + 1);
+      
+      // Look for tool calls in the structured response
+      const toolCalls = response.content.filter(item => item.type === 'tool_use');
+      
+      if (toolCalls && toolCalls.length > 0) {
+        // We have a tool call
+        console.log('[SESSION] Tool call detected in structured response');
+        const toolUse = toolCalls[0]; // Use the first tool call for now
+        
+        if (toolUse.id && toolUse.name && toolUse.input) {
+          hasToolCall = true;
           try {
             toolCall = {
-              name,
-              parameters: JSON.parse(paramsStr),
+              name: toolUse.name,
+              parameters: toolUse.input
             };
-            console.log('[SESSION] Parsed tool call:', toolCall);
+            console.log('[SESSION] Parsed structured tool call:', toolCall);
           } catch (error) {
             console.error('[SESSION] Failed to parse tool parameters:', error);
             throw new LLMError('Invalid tool parameters format');
+          }
+        }
+      }
+      
+      // Extract text content
+      const textContent = response.content.filter(item => item.type === 'text');
+      if (textContent && textContent.length > 0) {
+        content = textContent[0].text;
+      } else if (toolCalls.length > 0) {
+        // If we only have tool calls, create a placeholder content
+        content = `I need to use the ${toolCalls[0].name} tool.`;
+      } else {
+        console.error('[SESSION] Empty response from LLM');
+        throw new LLMError('Empty response from LLM');
+      }
+      
+      // For backward compatibility, also check for <tool> tag format
+      if (!hasToolCall) {
+        const toolMatch = content.match(/<tool>(.*?)<\/tool>/s);
+        
+        if (toolMatch && toolMatch[1]) {
+          console.log('[SESSION] Tool call detected in legacy tag format');
+          hasToolCall = true;
+          const toolContent = toolMatch[1].trim();
+          const spaceIndex = toolContent.indexOf(' ');
+          if (spaceIndex > -1) {
+            const name = toolContent.slice(0, spaceIndex);
+            const paramsStr = toolContent.slice(spaceIndex + 1);
+            try {
+              toolCall = {
+                name,
+                parameters: JSON.parse(paramsStr),
+              };
+              console.log('[SESSION] Parsed legacy tool call:', toolCall);
+            } catch (error) {
+              console.error('[SESSION] Failed to parse tool parameters:', error);
+              throw new LLMError('Invalid tool parameters format');
+            }
           }
         }
       }
@@ -575,6 +641,9 @@ export class SessionManager {
         const iterator = (stream as any)[Symbol.asyncIterator]();
         let iterResult = await iterator.next();
         
+        // Track if we've seen tool calls
+        let hasSeenToolCall = false;
+        
         while (!iterResult.done) {
           const chunk = iterResult.value;
           
@@ -585,6 +654,22 @@ export class SessionManager {
             // Thinking chunks
             console.log('[SESSION] Received thinking chunk');
             yield { type: 'thinking', content: chunk.thinking || 'Thinking...' };
+          } else if (chunk.type === 'content_block_start' && chunk.content_block.type === 'tool_use') {
+            // Tool call detected
+            console.log('[SESSION] Tool call detected in stream', JSON.stringify(chunk.content_block));
+            hasSeenToolCall = true;
+            const toolName = chunk.content_block.name || 'unknown';
+            yield { 
+              type: 'tool_start', 
+              content: `Using tool: ${toolName}` 
+            };
+          } else if (chunk.type === 'content_block_delta' && chunk.delta.type === 'tool_use_delta') {
+            // Tool call parameter delta
+            // We don't yield this as it's internal tool call building
+            console.log('[SESSION] Tool parameter delta received');
+          } else if (chunk.type === 'message_delta' && chunk.usage) {
+            // Usage information - can be used to update token metrics
+            console.log('[SESSION] Usage information received:', chunk.usage);
           }
           
           iterResult = await iterator.next();

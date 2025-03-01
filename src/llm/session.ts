@@ -1,6 +1,13 @@
 import { v4 as uuidv4 } from 'uuid';
 import { LLMConfig } from '../config/types';
-import { ChatMessage, LLMError, TokenMetrics, TokenCost, ContextSettings, TokenAlert } from './types';
+import {
+  ChatMessage,
+  LLMError,
+  TokenMetrics,
+  TokenCost,
+  ContextSettings,
+  TokenAlert,
+} from './types';
 import { Anthropic } from '@anthropic-ai/sdk';
 import type { Tool } from '@anthropic-ai/sdk/resources/messages/messages';
 import { MCPTool, MCPResource } from './types';
@@ -8,17 +15,18 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ServerLauncher } from '../server/launcher';
 import { ServerDiscovery } from '../server/discovery';
 import { globalSessions } from './store';
-import { 
-  calculateMessageTokens, 
+import {
+  calculateMessageTokens,
   calculateTokenCost,
-  getContextLimit, 
-  supportsThinking, 
+  getContextLimit,
+  supportsThinking,
   getDefaultThinkingBudget,
   isContextWindowCritical,
   getContextRecommendation,
   calculateContextUsage,
-  countTokens
+  countTokens,
 } from './token-counter';
+import { pruneMessagesByRelevance } from './relevance-pruning';
 
 // Note: Both of these interfaces are now imported from types.ts
 // So we don't need to re-declare them here
@@ -65,7 +73,7 @@ export class SessionManager {
         messages: [],
         serverClients: new Map(),
         toolCallCount: 0,
-        maxToolCalls: config.max_tool_calls || 2,  // Use configured limit or default to 2
+        maxToolCalls: config.max_tool_calls || 2, // Use configured limit or default to 2
         tools: [],
         resources: [],
         // Initialize token metrics with enhanced tracking
@@ -77,20 +85,23 @@ export class SessionManager {
           totalTokens: 0,
           maxContextTokens: getContextLimit(config.model),
           percentUsed: 0,
-          recommendation: 'Context window usage is low.'
+          recommendation: 'Context window usage is low.',
         },
         tokenCost: {
           inputCost: 0,
           outputCost: 0,
           totalCost: 0,
-          currency: 'USD'
+          currency: 'USD',
         },
         // Initialize context settings from config or defaults
         contextSettings: {
           autoTruncate: config.token_optimization?.auto_truncate || false,
-          preserveSystemMessages: config.token_optimization?.preserve_system_messages !== false, // default to true
-          preserveRecentMessages: config.token_optimization?.preserve_recent_messages || 4,
-          truncationStrategy: config.token_optimization?.truncation_strategy || 'oldest-first'
+          preserveSystemMessages:
+            config.token_optimization?.preserve_system_messages !== false, // default to true
+          preserveRecentMessages:
+            config.token_optimization?.preserve_recent_messages || 4,
+          truncationStrategy:
+            config.token_optimization?.truncation_strategy || 'oldest-first',
         },
         isContextWindowCritical: false,
       };
@@ -106,19 +117,26 @@ export class SessionManager {
         role: 'system' as const,
         content: config.system_prompt,
         timestamp: new Date(),
-        tokens: countTokens(config.system_prompt, config.model)
+        tokens: countTokens(config.system_prompt, config.model),
       };
       session.messages.push(systemMessage);
-      
+
       // Update token metrics for system message
       session.tokenMetrics!.systemTokens += systemMessage.tokens;
       session.tokenMetrics!.totalTokens += systemMessage.tokens;
-      session.tokenMetrics!.percentUsed = calculateContextUsage(session.tokenMetrics!.totalTokens, config.model);
+      session.tokenMetrics!.percentUsed = calculateContextUsage(
+        session.tokenMetrics!.totalTokens,
+        config.model
+      );
 
       // Launch MCP servers if configured
       if (config.servers) {
         console.log('[SESSION] Launching MCP servers');
-        console.log(`[SESSION] Server configurations: ${JSON.stringify(Object.keys(config.servers))}`);
+        console.log(
+          `[SESSION] Server configurations: ${JSON.stringify(
+            Object.keys(config.servers)
+          )}`
+        );
         for (const [serverName, serverConfig] of Object.entries(
           config.servers
         )) {
@@ -147,8 +165,14 @@ export class SessionManager {
             console.log(
               `[SESSION] Added ${result.capabilities.tools.length} tools and ${result.capabilities.resources.length} resources from ${serverName}`
             );
-            console.log(`[SESSION] Registered tools from ${serverName}: ${JSON.stringify(result.capabilities.tools.map(t => t.name))}`);
-            console.log(`[SESSION] Active server clients: ${session.serverClients.size}`);
+            console.log(
+              `[SESSION] Registered tools from ${serverName}: ${JSON.stringify(
+                result.capabilities.tools.map(t => t.name)
+              )}`
+            );
+            console.log(
+              `[SESSION] Active server clients: ${session.serverClients.size}`
+            );
           } catch (error) {
             console.error(
               `[SESSION] Failed to initialize server ${serverName}:`,
@@ -184,19 +208,19 @@ export class SessionManager {
     // Define mappings to handle different naming conventions
     const toolMap: Record<string, string[]> = {
       // camelCase → snake_case mappings
-      'readFile': ['read_file', 'readFile'],
-      'listFiles': ['list_directory', 'list_files', 'listFiles', 'listDirectory'],
-      'executeCommand': ['run_command', 'execute_command', 'executeCommand'],
+      readFile: ['read_file', 'readFile'],
+      listFiles: ['list_directory', 'list_files', 'listFiles', 'listDirectory'],
+      executeCommand: ['run_command', 'execute_command', 'executeCommand'],
       // Add more mappings as needed
     };
-    
+
     // Return array of possible tool names to try
     if (toolMap[toolName]) {
       return toolMap[toolName];
     }
-    
+
     // If no mapping exists, try both the original name and a snake_case version
-    const snakeCase = toolName.replace(/([A-Z])/g, "_$1").toLowerCase();
+    const snakeCase = toolName.replace(/([A-Z])/g, '_$1').toLowerCase();
     return [toolName, snakeCase];
   }
 
@@ -207,18 +231,26 @@ export class SessionManager {
   ): Promise<unknown> {
     console.log(`[SESSION] Starting tool execution for: ${toolName}`);
     console.log(`[SESSION] Tool parameters: ${JSON.stringify(parameters)}`);
-    console.log(`[SESSION] Server clients available: ${session.serverClients.size}`);
-    
+    console.log(
+      `[SESSION] Server clients available: ${session.serverClients.size}`
+    );
+
     // Get potential tool names to try
     const potentialToolNames = this.mapToolName(toolName);
-    console.log(`[SESSION] Potential tool names for ${toolName}:`, potentialToolNames);
-    
+    console.log(
+      `[SESSION] Potential tool names for ${toolName}:`,
+      potentialToolNames
+    );
+
     // Find the client that can handle this tool
     for (const [serverName, client] of session.serverClients.entries()) {
       try {
         // Log available tools for debugging
-        console.log(`[SESSION] Server ${serverName} has tools:`, session.tools.map(t => t.name));
-        
+        console.log(
+          `[SESSION] Server ${serverName} has tools:`,
+          session.tools.map(t => t.name)
+        );
+
         // Try each potential tool name
         for (const mappedToolName of potentialToolNames) {
           // Check if this server has the tool with this name
@@ -250,7 +282,11 @@ export class SessionManager {
         );
       }
     }
-    throw new Error(`No server found that can handle tool ${toolName} (tried: ${potentialToolNames.join(', ')})`);
+    throw new Error(
+      `No server found that can handle tool ${toolName} (tried: ${potentialToolNames.join(
+        ', '
+      )})`
+    );
   }
 
   private async processToolCall(
@@ -326,30 +362,36 @@ export class SessionManager {
       // First, look for structured tool calls
       let hasNextToolCall = false;
       let nextToolCall = undefined;
-      
+
       if (followUpResponse.content) {
         // Look for structured tool calls
-        const toolCalls = followUpResponse.content.filter(item => item.type === 'tool_use');
-        
+        const toolCalls = followUpResponse.content.filter(
+          item => item.type === 'tool_use'
+        );
+
         if (toolCalls && toolCalls.length > 0) {
-          console.log('[SESSION] Found another structured tool call in follow-up response');
+          console.log(
+            '[SESSION] Found another structured tool call in follow-up response'
+          );
           const toolUse = toolCalls[0];
-          
+
           if (toolUse.id && toolUse.name && toolUse.input) {
             hasNextToolCall = true;
             nextToolCall = {
               name: toolUse.name,
-              parameters: toolUse.input
+              parameters: toolUse.input,
             };
           }
         }
       }
-      
+
       // Fall back to legacy format if no structured tool call found
       if (!hasNextToolCall) {
         const nextToolMatch = followUpContent.match(/<tool>(.*?)<\/tool>/s);
         if (nextToolMatch && nextToolMatch[1]) {
-          console.log('[SESSION] Found another legacy tool call in follow-up response');
+          console.log(
+            '[SESSION] Found another legacy tool call in follow-up response'
+          );
           hasNextToolCall = true;
           const toolContent = nextToolMatch[1].trim();
           const spaceIndex = toolContent.indexOf(' ');
@@ -361,7 +403,7 @@ export class SessionManager {
           }
         }
       }
-      
+
       // Process next tool call if found
       if (hasNextToolCall && nextToolCall) {
         followUpMessage.hasToolCall = true;
@@ -419,17 +461,24 @@ export class SessionManager {
         role: 'user' as const,
         content: message,
         timestamp: new Date(),
-        tokens: countTokens(message, session.config.model)
+        tokens: countTokens(message, session.config.model),
       };
       session.messages.push(userMessage);
-      console.log(`[SESSION] Added user message to history (${userMessage.tokens} tokens)`);
-      
+      console.log(
+        `[SESSION] Added user message to history (${userMessage.tokens} tokens)`
+      );
+
       // Update token metrics for the new message
       this.updateTokenMetrics(sessionId);
-      
+
       // Check if context window is approaching limits
-      if (session.isContextWindowCritical && session.contextSettings?.autoTruncate) {
-        console.log('[SESSION] Context window approaching limits, optimizing context');
+      if (
+        session.isContextWindowCritical &&
+        session.contextSettings?.autoTruncate
+      ) {
+        console.log(
+          '[SESSION] Context window approaching limits, optimizing context'
+        );
         this.optimizeContext(sessionId);
       }
 
@@ -442,7 +491,7 @@ export class SessionManager {
 
       // Update token metrics
       this.updateTokenMetrics(sessionId);
-      
+
       // Prepare API request parameters
       const apiParams: any = {
         model: session.config.model,
@@ -456,52 +505,62 @@ export class SessionManager {
           })),
         tools: tools,
       };
-      
+
       // Add thinking parameter for Claude 3.7+ models
       if (supportsThinking(session.config.model)) {
-        console.log('[SESSION] Model supports thinking, adding thinking parameter');
-        
+        console.log(
+          '[SESSION] Model supports thinking, adding thinking parameter'
+        );
+
         // If thinking is explicitly disabled in config, don't add it
         if (session.config.thinking?.enabled !== false) {
           // Get budget from config or use default
-          const budgetTokens = session.config.thinking?.budget_tokens || 
-                              getDefaultThinkingBudget(session.config.model);
-          
+          const budgetTokens =
+            session.config.thinking?.budget_tokens ||
+            getDefaultThinkingBudget(session.config.model);
+
           apiParams.thinking = {
-            type: "enabled",
-            budget_tokens: budgetTokens
+            type: 'enabled',
+            budget_tokens: budgetTokens,
           };
-          
-          console.log(`[SESSION] Added thinking with budget: ${budgetTokens} tokens`);
+
+          console.log(
+            `[SESSION] Added thinking with budget: ${budgetTokens} tokens`
+          );
         }
       }
-      
+
       // Send message to Anthropic
       console.log('[SESSION] Sending message to Anthropic');
       const response = await this.anthropic.messages.create(apiParams);
 
       // Process response - check for tool calls first
       console.log('[SESSION] Checking for tool calls in response');
-      console.log('[SESSION] Response content:', JSON.stringify(response.content));
-      
+      console.log(
+        '[SESSION] Response content:',
+        JSON.stringify(response.content)
+      );
+
       let content = '';
       let hasToolCall = false;
       let toolCall = undefined;
-      
+
       // Look for tool calls in the structured response
-      const toolCalls = response.content.filter(item => item.type === 'tool_use');
-      
+      const toolCalls = response.content.filter(
+        item => item.type === 'tool_use'
+      );
+
       if (toolCalls && toolCalls.length > 0) {
         // We have a tool call
         console.log('[SESSION] Tool call detected in structured response');
         const toolUse = toolCalls[0]; // Use the first tool call for now
-        
+
         if (toolUse.id && toolUse.name && toolUse.input) {
           hasToolCall = true;
           try {
             toolCall = {
               name: toolUse.name,
-              parameters: toolUse.input
+              parameters: toolUse.input,
             };
             console.log('[SESSION] Parsed structured tool call:', toolCall);
           } catch (error) {
@@ -510,7 +569,7 @@ export class SessionManager {
           }
         }
       }
-      
+
       // Extract text content
       const textContent = response.content.filter(item => item.type === 'text');
       if (textContent && textContent.length > 0) {
@@ -522,11 +581,11 @@ export class SessionManager {
         console.error('[SESSION] Empty response from LLM');
         throw new LLMError('Empty response from LLM');
       }
-      
+
       // For backward compatibility, also check for <tool> tag format
       if (!hasToolCall) {
         const toolMatch = content.match(/<tool>(.*?)<\/tool>/s);
-        
+
         if (toolMatch && toolMatch[1]) {
           console.log('[SESSION] Tool call detected in legacy tag format');
           hasToolCall = true;
@@ -542,7 +601,10 @@ export class SessionManager {
               };
               console.log('[SESSION] Parsed legacy tool call:', toolCall);
             } catch (error) {
-              console.error('[SESSION] Failed to parse tool parameters:', error);
+              console.error(
+                '[SESSION] Failed to parse tool parameters:',
+                error
+              );
               throw new LLMError('Invalid tool parameters format');
             }
           }
@@ -556,13 +618,21 @@ export class SessionManager {
         hasToolCall,
         toolCall,
         timestamp: new Date(),
-        tokens: countTokens(content, session.config.model)
+        tokens: countTokens(content, session.config.model),
       };
 
       // Execute tool call if available
-      console.log(`[SESSION] Tool execution check: hasToolCall=${hasToolCall}, toolCall=${JSON.stringify(toolCall)}, serverClients.size=${session.serverClients.size}`);
-      console.log(`[SESSION] All registered tools: ${JSON.stringify(session.tools.map(t => t.name))}`);
-      
+      console.log(
+        `[SESSION] Tool execution check: hasToolCall=${hasToolCall}, toolCall=${JSON.stringify(
+          toolCall
+        )}, serverClients.size=${session.serverClients.size}`
+      );
+      console.log(
+        `[SESSION] All registered tools: ${JSON.stringify(
+          session.tools.map(t => t.name)
+        )}`
+      );
+
       if (hasToolCall && toolCall && session.serverClients.size > 0) {
         // Add assistant message to history before processing tool call
         session.messages.push(assistantMessage);
@@ -635,7 +705,7 @@ export class SessionManager {
 
       // Update token metrics
       this.updateTokenMetrics(sessionId);
-      
+
       // Prepare streaming API request parameters
       const streamApiParams: any = {
         model: session.config.model,
@@ -647,23 +717,28 @@ export class SessionManager {
         tools: tools,
         stream: true,
       };
-      
+
       // Add thinking parameter for Claude 3.7+ models
       if (supportsThinking(session.config.model)) {
-        console.log('[SESSION] Model supports thinking for streaming, adding thinking parameter');
-        
+        console.log(
+          '[SESSION] Model supports thinking for streaming, adding thinking parameter'
+        );
+
         // If thinking is explicitly disabled in config, don't add it
         if (session.config.thinking?.enabled !== false) {
           // Get budget from config or use default
-          const budgetTokens = session.config.thinking?.budget_tokens || 
-                              getDefaultThinkingBudget(session.config.model);
-          
+          const budgetTokens =
+            session.config.thinking?.budget_tokens ||
+            getDefaultThinkingBudget(session.config.model);
+
           streamApiParams.thinking = {
-            type: "enabled",
-            budget_tokens: budgetTokens
+            type: 'enabled',
+            budget_tokens: budgetTokens,
           };
-          
-          console.log(`[SESSION] Added thinking with budget: ${budgetTokens} tokens`);
+
+          console.log(
+            `[SESSION] Added thinking with budget: ${budgetTokens} tokens`
+          );
         }
       }
 
@@ -673,35 +748,50 @@ export class SessionManager {
         const stream = await this.anthropic.messages.create(streamApiParams);
 
         console.log('[SESSION] Starting to process Anthropic stream');
-        
+
         // Use the Anthropic SDK's built-in async iterator
         // Cast to any to avoid TypeScript errors with the stream type
         const iterator = (stream as any)[Symbol.asyncIterator]();
         let iterResult = await iterator.next();
-        
+
         // Track if we've seen tool calls
         let hasSeenToolCall = false;
-        
+
         while (!iterResult.done) {
           const chunk = iterResult.value;
-          
-          if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+
+          if (
+            chunk.type === 'content_block_delta' &&
+            chunk.delta.type === 'text_delta'
+          ) {
             // Content chunks
             yield { type: 'content', content: chunk.delta.text };
           } else if (chunk.type === 'thinking') {
             // Thinking chunks
             console.log('[SESSION] Received thinking chunk');
-            yield { type: 'thinking', content: chunk.thinking || 'Thinking...' };
-          } else if (chunk.type === 'content_block_start' && chunk.content_block.type === 'tool_use') {
+            yield {
+              type: 'thinking',
+              content: chunk.thinking || 'Thinking...',
+            };
+          } else if (
+            chunk.type === 'content_block_start' &&
+            chunk.content_block.type === 'tool_use'
+          ) {
             // Tool call detected
-            console.log('[SESSION] Tool call detected in stream', JSON.stringify(chunk.content_block));
+            console.log(
+              '[SESSION] Tool call detected in stream',
+              JSON.stringify(chunk.content_block)
+            );
             hasSeenToolCall = true;
             const toolName = chunk.content_block.name || 'unknown';
-            yield { 
-              type: 'tool_start', 
-              content: `Using tool: ${toolName}` 
+            yield {
+              type: 'tool_start',
+              content: `Using tool: ${toolName}`,
             };
-          } else if (chunk.type === 'content_block_delta' && chunk.delta.type === 'tool_use_delta') {
+          } else if (
+            chunk.type === 'content_block_delta' &&
+            chunk.delta.type === 'tool_use_delta'
+          ) {
             // Tool call parameter delta
             // We don't yield this as it's internal tool call building
             console.log('[SESSION] Tool parameter delta received');
@@ -709,7 +799,7 @@ export class SessionManager {
             // Usage information - can be used to update token metrics
             console.log('[SESSION] Usage information received:', chunk.usage);
           }
-          
+
           iterResult = await iterator.next();
         }
       } catch (error) {
@@ -746,7 +836,7 @@ export class SessionManager {
     now.setMilliseconds(now.getMilliseconds() + 1);
     session.lastActivityAt = now;
   }
-  
+
   /**
    * Update token metrics for a session based on current messages
    * Now with enhanced metrics and cost calculation
@@ -754,16 +844,25 @@ export class SessionManager {
   updateTokenMetrics(sessionId: string): TokenMetrics {
     const session = this.getSession(sessionId);
     const modelName = session.config.model;
-    
+
     // Calculate current token usage with the enhanced method
     const tokenCounts = calculateMessageTokens(session.messages, modelName);
     const maxContextTokens = getContextLimit(modelName);
-    const percentUsed = calculateContextUsage(tokenCounts.totalTokens, modelName);
-    
+    const percentUsed = calculateContextUsage(
+      tokenCounts.totalTokens,
+      modelName
+    );
+
     // Calculate if context is approaching critical limits
-    const isCritical = isContextWindowCritical(tokenCounts.totalTokens, modelName);
-    const recommendation = getContextRecommendation(tokenCounts.totalTokens, modelName);
-    
+    const isCritical = isContextWindowCritical(
+      tokenCounts.totalTokens,
+      modelName
+    );
+    const recommendation = getContextRecommendation(
+      tokenCounts.totalTokens,
+      modelName
+    );
+
     // Update token metrics
     const metrics: TokenMetrics = {
       userTokens: tokenCounts.userTokens,
@@ -773,129 +872,213 @@ export class SessionManager {
       totalTokens: tokenCounts.totalTokens,
       maxContextTokens: maxContextTokens,
       percentUsed: percentUsed,
-      recommendation: recommendation
+      recommendation: recommendation,
     };
-    
+
     // Update cost estimation
     const costEstimate = calculateTokenCost(tokenCounts, modelName);
-    
+
     // Update session data
     session.tokenMetrics = metrics;
     session.tokenCost = costEstimate;
     session.isContextWindowCritical = isCritical;
-    
+
     // Log meaningful information
     console.log(`[SESSION] Updated token metrics for ${sessionId}:`, {
       totalTokens: metrics.totalTokens,
       percentUsed: metrics.percentUsed,
       isCritical: isCritical,
-      estimatedCost: `$${costEstimate.totalCost.toFixed(4)}`
+      estimatedCost: `$${costEstimate.totalCost.toFixed(4)}`,
     });
-    
+
     return metrics;
   }
-  
+
   /**
    * Get current token usage for a session with recommendations
    */
   getSessionTokenUsage(sessionId: string): TokenMetrics {
     return this.updateTokenMetrics(sessionId);
   }
-  
+
   /**
    * Get cost estimates for a session
    */
   getTokenCostEstimate(sessionId: string): TokenCost {
     const session = this.getSession(sessionId);
-    
+
     // Make sure metrics are up to date
     this.updateTokenMetrics(sessionId);
-    
+
     if (!session.tokenCost) {
       throw new LLMError('Token cost not available for session');
     }
-    
+
     return session.tokenCost;
   }
-  
+
   /**
    * Set context optimization settings
    */
-  setContextSettings(sessionId: string, settings: Partial<ContextSettings>): void {
+  setContextSettings(
+    sessionId: string,
+    settings: Partial<ContextSettings>
+  ): void {
     const session = this.getSession(sessionId);
-    
+
     if (!session.contextSettings) {
       session.contextSettings = {
         autoTruncate: false,
         preserveSystemMessages: true,
         preserveRecentMessages: 4,
-        truncationStrategy: 'oldest-first'
+        truncationStrategy: 'oldest-first',
       };
     }
-    
+
     // Update only provided settings
     session.contextSettings = {
       ...session.contextSettings,
-      ...settings
+      ...settings,
     };
-    
-    console.log(`[SESSION] Updated context settings for ${sessionId}:`, session.contextSettings);
+
+    console.log(
+      `[SESSION] Updated context settings for ${sessionId}:`,
+      session.contextSettings
+    );
   }
-  
+
   /**
    * Apply basic context optimization based on settings
    */
   optimizeContext(sessionId: string): TokenMetrics {
     const session = this.getSession(sessionId);
-    
+
     if (!session.contextSettings?.autoTruncate) {
-      console.log(`[SESSION] Context optimization skipped (autoTruncate disabled)`);
+      console.log(
+        `[SESSION] Context optimization skipped (autoTruncate disabled)`
+      );
       return this.getSessionTokenUsage(sessionId);
     }
-    
+
     if (!session.isContextWindowCritical) {
-      console.log(`[SESSION] Context optimization not needed (usage not critical)`);
+      console.log(
+        `[SESSION] Context optimization not needed (usage not critical)`
+      );
       return this.getSessionTokenUsage(sessionId);
     }
-    
+
     console.log(`[SESSION] Applying context optimization for ${sessionId}`);
-    
-    // Implement the oldest-first truncation strategy
-    if (session.contextSettings.truncationStrategy === 'oldest-first') {
+
+    // Select optimization strategy based on config
+    if (session.contextSettings.truncationStrategy === 'selective') {
+      // Use relevance-based pruning for selective strategy
+      this.truncateByRelevance(session);
+    } else if (session.contextSettings.truncationStrategy === 'oldest-first') {
+      // Use traditional oldest-first truncation
       this.truncateOldestMessages(session);
     }
-    
+
     // Update token metrics after optimization
     return this.updateTokenMetrics(sessionId);
   }
-  
+
+  /**
+   * Truncate messages using relevance-based pruning
+   * This strategy removes less relevant messages first, preserving crucial context
+   */
+  private truncateByRelevance(session: ChatSession): void {
+    console.log(`[SESSION] Using relevance-based pruning strategy`);
+
+    const totalTokens = session.messages.reduce(
+      (sum, msg) => sum + (msg.tokens || 0),
+      0
+    );
+    const maxTokens =
+      session.contextSettings?.maxTokenLimit ||
+      this.getModelContextLimit(session.config.model);
+
+    // Target 70% of max tokens to leave room for new messages
+    const targetTokens = Math.floor(maxTokens * 0.7);
+
+    // Skip if we're already below target
+    if (totalTokens <= targetTokens) {
+      console.log(
+        `[SESSION] Skipping relevance pruning: ${totalTokens} tokens already under target ${targetTokens}`
+      );
+      return;
+    }
+
+    // Apply relevance-based pruning
+    const originalMessageCount = session.messages.length;
+    const prunedMessages = pruneMessagesByRelevance(
+      session.messages,
+      session.contextSettings!,
+      targetTokens
+    );
+
+    // Update session with pruned messages
+    session.messages = prunedMessages;
+
+    console.log(
+      `[SESSION] Relevance pruning: reduced from ${originalMessageCount} to ${prunedMessages.length} messages`
+    );
+  }
+
   /**
    * Truncate oldest messages, preserving system messages and recent messages
    */
   private truncateOldestMessages(session: ChatSession): void {
-    const { preserveSystemMessages, preserveRecentMessages } = session.contextSettings!;
-    
+    const { preserveSystemMessages, preserveRecentMessages } =
+      session.contextSettings!;
+
     // Create a copy of messages to work with
     const messages = [...session.messages];
-    
+
     // Separate system messages if we need to preserve them
-    const systemMessages = preserveSystemMessages 
+    const systemMessages = preserveSystemMessages
       ? messages.filter(m => m.role === 'system')
       : [];
-      
+
     // Get non-system messages
     const nonSystemMessages = messages.filter(m => m.role !== 'system');
-    
+
     // Keep only the most recent N messages
     const recentMessages = nonSystemMessages.slice(-preserveRecentMessages);
-    
+
     // Combine system messages with recent messages
     const newMessages = [...systemMessages, ...recentMessages];
-    
-    console.log(`[SESSION] Truncated messages from ${messages.length} to ${newMessages.length}`);
-    
+
+    console.log(
+      `[SESSION] Truncated messages from ${messages.length} to ${newMessages.length}`
+    );
+
     // Update session messages
     session.messages = newMessages;
+  }
+
+  /**
+   * Get the maximum context window size for a given model
+   * @param model The model identifier
+   * @returns Maximum context size in tokens
+   */
+  private getModelContextLimit(model: string): number {
+    // Context window sizes for Claude models
+    if (model.includes('claude-3')) {
+      if (model.includes('sonnet')) {
+        return 200000; // Claude 3 Sonnet - 200K
+      } else if (model.includes('haiku')) {
+        return 180000; // Claude 3 Haiku - 180K
+      } else if (model.includes('opus')) {
+        return 200000; // Claude 3 Opus - 200K
+      } else {
+        return 200000; // Default for Claude 3 models
+      }
+    } else if (model.includes('claude-2')) {
+      return 100000; // Claude 2 - 100K
+    } else {
+      // Default fallback
+      return 100000;
+    }
   }
 
   /**
@@ -905,100 +1088,23 @@ export class SessionManager {
    * 2. Stops all server processes
    * 3. Clears the session store
    */
-  /**
-   * Restarts a specific server for a session
-   * Used for error recovery and testing
-   * 
-   * @param sessionId - ID of the session
-   * @param serverName - Name of the server to restart
-   */
-  async _restartServer(sessionId: string, serverName: string): Promise<void> {
-    console.log(`[SESSION] Restarting server ${serverName} for session ${sessionId}`);
-    
-    const session = this.getSession(sessionId);
-    
-    // Get the server configuration from the session
-    const serverConfig = session.config.servers?.[serverName];
-    if (!serverConfig) {
-      throw new Error(`Server configuration not found for ${serverName}`);
-    }
-    
-    // Get the current client
-    const client = session.serverClients.get(serverName);
-    if (client) {
-      // Close the current client
-      try {
-        await client.close();
-      } catch (error) {
-        console.error(`[SESSION] Error closing client for ${serverName}:`, error);
-      }
-      
-      // Remove the client
-      session.serverClients.delete(serverName);
-    }
-    
-    // Stop the existing server if it's still in the launcher
-    try {
-      // Get the current server process
-      const currentProcess = this.serverLauncher.getServerProcess(serverName);
-      if (currentProcess) {
-        // Manually clean up the process
-        try {
-          console.log(`[SESSION] Killing server process: ${serverName}`);
-          currentProcess.kill('SIGKILL');
-        } catch (error) {
-          console.error(`[SESSION] Error killing process: ${error}`);
-        }
-      }
-    } catch (error) {
-      console.error(`[SESSION] Error checking server process: ${error}`);
-    }
-    
-    // Force cleanup in the launcher using public method
-    this.serverLauncher.cleanup(serverName);
-    
-    // Restart the server
-    const serverProcess = await this.serverLauncher.launchServer(
-      serverName,
-      serverConfig
-    );
-    
-    // Discover capabilities
-    const result = await this.serverDiscovery.discoverCapabilities(
-      serverName,
-      serverProcess
-    );
-    
-    // Store client and capabilities
-    session.serverClients.set(serverName, result.client);
-    
-    // Update tools - remove existing tools from this server and add new ones
-    const existingTools = new Set(session.tools.map(tool => tool.name));
-    result.capabilities.tools.forEach(tool => {
-      if (!existingTools.has(tool.name)) {
-        session.tools.push(tool);
-      }
-    });
-    
-    console.log(`[SESSION] Server ${serverName} restarted successfully`);
-  }
+  async cleanup() {
+    console.log('[SESSION] Starting cleanup...');
 
-  async cleanup(): Promise<void> {
-    console.log('[SESSION] Cleaning up all sessions and resources');
-
-    // Close all client connections first
-    for (const session of globalSessions.values()) {
+    // Close all connections
+    for (const [sessionId, session] of globalSessions.entries()) {
+      console.log(`[SESSION] Closing connections for session ${sessionId}`);
       for (const [serverName, client] of session.serverClients.entries()) {
-        try {
-          console.log(
-            `[SESSION] Closing client connection for server: ${serverName}`
-          );
-          await client.close();
-        } catch (error) {
-          console.error(
-            `[SESSION] Error closing client for ${serverName}:`,
-            error
-          );
+        if (client && typeof client.close === 'function') {
+          try {
+            client.close();
+            console.log(`[SESSION] Closed client for ${serverName}`);
+          } catch (error) {
+            console.error(
+              `[SESSION] Error closing client for ${serverName}:`,
+              error
+            );
+          }
         }
       }
     }

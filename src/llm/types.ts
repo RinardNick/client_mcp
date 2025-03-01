@@ -6,7 +6,7 @@ export interface MCPTool {
   name: string;
   description?: string;
   inputSchema?: {
-    type: "object";
+    type: 'object';
     properties: Record<string, any>;
     required?: string[];
   };
@@ -53,6 +53,21 @@ export interface ContextSettings {
   preserveSystemMessages: boolean;
   preserveRecentMessages: number; // Number of recent messages to always keep
   truncationStrategy: 'oldest-first' | 'selective' | 'summarize';
+}
+
+/**
+ * Message relevance scoring for context optimization
+ * Used to determine which messages are most important to keep
+ */
+export interface MessageRelevance {
+  messageIndex: number; // Index of message in the session
+  score: number; // 0-100 relevance score
+  factors: {
+    recency: number; // Score based on how recent the message is
+    significance: number; // Score based on content significance (questions, key facts)
+    reference: number; // Score based on being referenced by other messages
+    toolUse: number; // Score boost for tool usage or results
+  };
 }
 
 /**

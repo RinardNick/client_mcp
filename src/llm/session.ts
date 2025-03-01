@@ -1062,23 +1062,116 @@ export class SessionManager {
    * @returns Maximum context size in tokens
    */
   private getModelContextLimit(model: string): number {
-    // Context window sizes for Claude models
-    if (model.includes('claude-3')) {
-      if (model.includes('sonnet')) {
-        return 200000; // Claude 3 Sonnet - 200K
-      } else if (model.includes('haiku')) {
-        return 180000; // Claude 3 Haiku - 180K
-      } else if (model.includes('opus')) {
-        return 200000; // Claude 3 Opus - 200K
-      } else {
-        return 200000; // Default for Claude 3 models
-      }
-    } else if (model.includes('claude-2')) {
-      return 100000; // Claude 2 - 100K
+    // Add a conservative default for unknown models
+    const DEFAULT_LIMIT = 100000; // 100k tokens as a safe default
+
+    if (model.includes('claude-3-opus')) {
+      return 200000; // 200k tokens
+    } else if (
+      model.includes('claude-3-sonnet') ||
+      model.includes('claude-3-5-sonnet')
+    ) {
+      return 180000; // 180k tokens
+    } else if (model.includes('claude-3-haiku')) {
+      return 150000; // 150k tokens
+    } else if (
+      model.includes('claude-2') ||
+      model.includes('claude-2.0') ||
+      model.includes('claude-2.1')
+    ) {
+      return 100000; // 100k tokens
+    } else if (model.includes('claude-instant')) {
+      return 100000; // 100k tokens
     } else {
-      // Default fallback
-      return 100000;
+      // For all other models, use a conservative default
+      console.warn(
+        `[SESSION] Unknown model ${model}, using default context limit of ${DEFAULT_LIMIT} tokens`
+      );
+      return DEFAULT_LIMIT;
     }
+  }
+
+  /**
+   * Restart a server for a session
+   * This is primarily used for recovering from server failures
+   *
+   * @param sessionId The ID of the session
+   * @param serverName The name of the server to restart
+   */
+  async _restartServer(sessionId: string, serverName: string): Promise<void> {
+    console.log(
+      `[SESSION] Restarting server ${serverName} for session ${sessionId}`
+    );
+
+    const session = this.getSession(sessionId);
+
+    // Get the server configuration from the session
+    const serverConfig = session.config.servers?.[serverName];
+    if (!serverConfig) {
+      throw new Error(`Server configuration not found for ${serverName}`);
+    }
+
+    // Get the current client
+    const client = session.serverClients.get(serverName);
+    if (client) {
+      // Close the current client
+      try {
+        await client.close();
+      } catch (error) {
+        console.error(
+          `[SESSION] Error closing client for ${serverName}:`,
+          error
+        );
+      }
+
+      // Remove the client
+      session.serverClients.delete(serverName);
+    }
+
+    // Stop the existing server if it's still in the launcher
+    try {
+      // Get the current server process
+      const currentProcess = this.serverLauncher.getServerProcess(serverName);
+      if (currentProcess) {
+        // Manually clean up the process
+        try {
+          console.log(`[SESSION] Killing server process: ${serverName}`);
+          currentProcess.kill('SIGKILL');
+        } catch (error) {
+          console.error(`[SESSION] Error killing process: ${error}`);
+        }
+      }
+    } catch (error) {
+      console.error(`[SESSION] Error checking server process: ${error}`);
+    }
+
+    // Force cleanup in the launcher using public method
+    this.serverLauncher.cleanup(serverName);
+
+    // Restart the server
+    const serverProcess = await this.serverLauncher.launchServer(
+      serverName,
+      serverConfig
+    );
+
+    // Discover capabilities
+    const result = await this.serverDiscovery.discoverCapabilities(
+      serverName,
+      serverProcess
+    );
+
+    // Store client and capabilities
+    session.serverClients.set(serverName, result.client);
+
+    // Update tools - remove existing tools from this server and add new ones
+    const existingTools = new Set(session.tools.map(tool => tool.name));
+    result.capabilities.tools.forEach(tool => {
+      if (!existingTools.has(tool.name)) {
+        session.tools.push(tool);
+      }
+    });
+
+    console.log(`[SESSION] Server ${serverName} restarted successfully`);
   }
 
   /**

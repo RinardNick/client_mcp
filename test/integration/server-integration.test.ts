@@ -124,16 +124,16 @@ describe('MCP Server Integration', () => {
    * Test the server launcher component in isolation
    */
   it('should successfully launch and stop servers', async () => {
-    // Configure to use our mock server script
+    // Configure to use a real filesystem server instead of mock
     const serverConfig: ServerConfig = {
-      command: 'node',
-      args: [path.join(process.cwd(), 'test/fixtures/mock-server.js')],
+      command: 'npx',
+      args: ['@modelcontextprotocol/server-filesystem', TEST_WORKSPACE],
       env: { NODE_ENV: 'test' },
     };
 
     // Launch the server
     console.log(
-      'Launching test server with config:',
+      'Launching filesystem server with config:',
       JSON.stringify(serverConfig)
     );
     const serverProcess = await serverLauncher.launchServer(
@@ -972,11 +972,11 @@ describe('MCP Server Integration', () => {
         args: ['--invalid-flag-that-will-cause-error'],
         env: {},
       });
-      
+
       // Since echo doesn't actually fail with invalid args, let's manually check the result
       const process = serverLauncher.getServerProcess('invalid');
       expect(process).toBeDefined();
-      
+
       // Clean up
       if (process) {
         process.kill();

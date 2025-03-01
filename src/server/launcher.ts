@@ -1,5 +1,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { ServerConfig } from '../config/types';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 export class ServerError extends Error {
   constructor(
@@ -43,6 +45,8 @@ export class ServerExitError extends ServerError {
 
 export class ServerLauncher {
   private servers: Map<string, ChildProcess> = new Map();
+  private transports: Map<string, StdioClientTransport> = new Map();
+  private clients: Map<string, Client> = new Map();
   private readonly launchTimeout = 15000; // 15 seconds
   private readonly healthCheckTimeout = 10000; // 10 seconds
   private readonly healthCheckRetries = 3;
@@ -60,6 +64,8 @@ export class ServerLauncher {
     }
 
     let serverProcess: ChildProcess | null = null;
+    let transport: StdioClientTransport | null = null;
+    let client: Client | null = null;
 
     try {
       // Launch server process
@@ -74,18 +80,68 @@ export class ServerLauncher {
       // Track server process
       this.servers.set(serverName, serverProcess);
 
-      // Wait for server to be ready
-      await this.waitForServerReady(serverName, serverProcess);
+      // Set up logging for debugging
+      this.setupLogging(serverName, serverProcess);
+
+      // Create transport and client
+      transport = new StdioClientTransport({
+        command: serverProcess.spawnfile,
+        args: serverProcess.spawnargs.slice(1),
+      });
+
+      client = new Client(
+        {
+          name: 'mcp-client',
+          version: '1.0.0',
+        },
+        {
+          capabilities: {
+            tools: {},
+            resources: {},
+          },
+        }
+      );
+
+      // Try to connect (this will handle protocol handshake)
+      await this.connectWithTimeout(client, transport, this.launchTimeout);
+
+      // Store transport and client
+      this.transports.set(serverName, transport);
+      this.clients.set(serverName, client);
 
       // Perform health check
       await this.waitForHealthCheck(serverName);
 
-      // Set up persistent error handling
+      // Set up persistent error handlers
       this.setupErrorHandlers(serverName, serverProcess);
 
       return serverProcess;
     } catch (error) {
       // Clean up on any error
+      if (client) {
+        try {
+          console.log(
+            `[LAUNCHER] Client for ${serverName} will be disconnected via transport`
+          );
+        } catch (disconnectError) {
+          console.error(
+            `[LAUNCHER] Error with client for ${serverName}:`,
+            disconnectError
+          );
+        }
+      }
+
+      if (transport) {
+        try {
+          await transport.close();
+        } catch (closeError) {
+          console.error(
+            `[LAUNCHER] Error closing transport for ${serverName}:`,
+            closeError
+          );
+        }
+      }
+
       if (serverProcess) {
         this.cleanup(serverName);
       }
@@ -101,6 +157,34 @@ export class ServerLauncher {
     }
   }
 
+  private async connectWithTimeout(
+    client: Client,
+    transport: StdioClientTransport,
+    timeout: number
+  ): Promise<void> {
+    return Promise.race([
+      client.connect(transport),
+      new Promise<void>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('Connection timeout reached'));
+        }, timeout);
+      }),
+    ]);
+  }
+
+  private setupLogging(serverName: string, serverProcess: ChildProcess): void {
+    // Log stdout and stderr for debugging
+    serverProcess.stdout?.on('data', (data: Buffer) => {
+      const message = data.toString();
+      console.log(`[LAUNCHER] Server ${serverName} stdout:`, message);
+    });
+
+    serverProcess.stderr?.on('data', (data: Buffer) => {
+      const message = data.toString();
+      console.log(`[LAUNCHER] Server ${serverName} stderr:`, message);
+    });
+  }
+
   private async waitForServerReady(
     serverName: string,
     serverProcess: ChildProcess
@@ -114,13 +198,30 @@ export class ServerLauncher {
         `[LAUNCHER] Waiting for server ${serverName} to be ready (timeout: ${this.launchTimeout}ms)`
       );
 
-      // Handle server ready message
+      // Handle server ready message on stderr
       serverProcess.stderr?.on('data', (data: Buffer) => {
         const message = data.toString();
         console.log(`[LAUNCHER] Server ${serverName} stderr:`, message);
         if (
           message.includes('running on stdio') ||
-          message.includes('Allowed directories:')
+          message.includes('Allowed directories:') ||
+          message.includes('MCP Terminal Server running')
+        ) {
+          console.log(`[LAUNCHER] Server ${serverName} is ready`);
+          isReady = true;
+          clearTimeout(timeoutId);
+          resolve();
+        }
+      });
+
+      // Also check stdout for ready messages
+      serverProcess.stdout?.on('data', (data: Buffer) => {
+        const message = data.toString();
+        console.log(`[LAUNCHER] Server ${serverName} stdout:`, message);
+        if (
+          message.includes('running on stdio') ||
+          message.includes('Allowed directories:') ||
+          message.includes('MCP Terminal Server running')
         ) {
           console.log(`[LAUNCHER] Server ${serverName} is ready`);
           isReady = true;
@@ -271,6 +372,44 @@ export class ServerLauncher {
 
   async stopAll(): Promise<void> {
     console.log('[LAUNCHER] Stopping all servers');
+
+    // Disconnect all clients
+    const clientPromises = Array.from(this.clients.entries()).map(
+      async ([name, client]) => {
+        try {
+          console.log(
+            `[LAUNCHER] Client for server ${name} will be disconnected via transport`
+          );
+          // No explicit disconnect needed, will be handled by transport.close()
+        } catch (error) {
+          console.error(
+            `[LAUNCHER] Error with client for server ${name}:`,
+            error
+          );
+        }
+      }
+    );
+    await Promise.all(clientPromises);
+    this.clients.clear();
+
+    // Close all transports
+    const transportPromises = Array.from(this.transports.entries()).map(
+      async ([name, transport]) => {
+        try {
+          console.log(`[LAUNCHER] Closing transport for server: ${name}`);
+          await transport.close();
+        } catch (error) {
+          console.error(
+            `[LAUNCHER] Error closing transport for server ${name}:`,
+            error
+          );
+        }
+      }
+    );
+    await Promise.all(transportPromises);
+    this.transports.clear();
+
+    // Stop all server processes
     const stopPromises = Array.from(this.servers.entries()).map(
       async ([name, server]) => {
         try {
@@ -317,11 +456,44 @@ export class ServerLauncher {
     return this.servers.get(name) || null;
   }
 
+  getServerClient(name: string): Client | null {
+    return this.clients.get(name) || null;
+  }
+
   /**
    * Cleanup a specific server
    * This method is also used for recovery between tests
    */
   public cleanup(serverName: string): void {
+    // Disconnect client if it exists
+    const client = this.clients.get(serverName);
+    if (client) {
+      try {
+        console.log(
+          `[LAUNCHER] Client for ${serverName} will be disconnected via transport`
+        );
+        // No explicit disconnect needed, will be handled by transport.close()
+      } catch (error) {
+        console.error(`[LAUNCHER] Error with client for ${serverName}:`, error);
+      }
+      this.clients.delete(serverName);
+    }
+
+    // Close transport if it exists
+    const transport = this.transports.get(serverName);
+    if (transport) {
+      try {
+        transport.close();
+      } catch (error) {
+        console.error(
+          `[LAUNCHER] Error closing transport for ${serverName}:`,
+          error
+        );
+      }
+      this.transports.delete(serverName);
+    }
+
+    // Kill server process if it exists
     const server = this.servers.get(serverName);
     if (server) {
       try {

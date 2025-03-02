@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Provider Architecture - TS-MCP-Client Documentation</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --primary-focus: rgba(99, 102, 241, 0.125);
+            --primary-inverse: #FFF;
+        }
+        
+        body > header {
+            background-color: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 2rem 0;
+        }
+        
+        body > main {
+            padding: 2rem 0;
+        }
+        
+        body > footer {
+            background-color: #f9fafb;
+            border-top: 1px solid #e5e7eb;
+            padding: 2rem 0;
+            text-align: center;
+        }
+        
+        .version-badge {
+            display: inline-block;
+            background-color: var(--primary);
+            color: white;
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+        }
+        
+        .breadcrumb {
+            margin-bottom: 2rem;
+            color: #6b7280;
+        }
+        
+        .breadcrumb a {
+            color: #4b5563;
+            text-decoration: none;
+        }
+        
+        .breadcrumb a:hover {
+            text-decoration: underline;
+        }
+        
+        .code-block {
+            background-color: #1e293b;
+            color: #e2e8f0;
+            border-radius: 8px;
+            padding: 1rem;
+            overflow-x: auto;
+            font-family: 'Fira Code', 'Courier New', Courier, monospace;
+        }
+        
+        .next-steps {
+            background-color: #f8fafc;
+            padding: 2rem;
+            border-radius: 8px;
+            margin: 2rem 0;
+        }
+        
+        .docs-nav {
+            position: sticky;
+            top: 20px;
+        }
+        
+        .docs-nav ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .docs-nav li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .docs-nav a {
+            color: #4b5563;
+            text-decoration: none;
+            display: block;
+            padding: 0.5rem;
+            border-radius: 4px;
+        }
+        
+        .docs-nav a:hover {
+            background-color: #f3f4f6;
+        }
+        
+        .docs-nav a.active {
+            background-color: var(--primary-focus);
+            color: var(--primary);
+            font-weight: bold;
+        }
+        
+        .note {
+            background-color: #eff6ff;
+            border-left: 4px solid var(--primary);
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .warning {
+            background-color: #fff7ed;
+            border-left: 4px solid #f97316;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .diagram-container {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+            margin: 2rem 0;
+            padding: 1.5rem;
+            overflow-x: auto;
+        }
+        
+        .diagram-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #374151;
+        }
+        
+        .provider-card {
+            background-color: #f8fafc;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .provider-card h3 {
+            color: var(--primary);
+            margin-top: 0;
+        }
+        
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        .feature-card {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            padding: 1.25rem;
+            border: 1px solid #e5e7eb;
+            height: 100%;
+        }
+        
+        .feature-card h4 {
+            color: #4b5563;
+            margin-top: 0;
+            font-size: 1.125rem;
+        }
+        
+        .feature-list {
+            padding-left: 1.5rem;
+            margin-bottom: 0;
+        }
+        
+        .feature-list li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .model-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+        
+        .model-table th {
+            background-color: #f9fafb;
+            padding: 0.75rem;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .model-table td {
+            padding: 0.75rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .model-table tr:last-child td {
+            border-bottom: none;
+        }
+    </style>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            mermaid.initialize({
+                startOnLoad: true,
+                theme: 'neutral',
+                flowchart: { useMaxWidth: false },
+                classDiagram: { useMaxWidth: false }
+            });
+        });
+    </script>
+</head>
+<body>
+    <header>
+        <nav class="container">
+            <ul>
+                <li>
+                    <a href="/">
+                        <strong>TS-MCP-Client</strong>
+                        <span class="version-badge">v1.2.1</span>
+                    </a>
+                </li>
+            </ul>
+            <ul>
+                <li><a href="../index.html#getting-started">Getting Started</a></li>
+                <li><a href="../index.html#features">Features</a></li>
+                <li><a href="../index.html#examples">Examples</a></li>
+                <li><a href="../index.html#api">API</a></li>
+                <li><a href="https://github.com/yourusername/client_mcp" target="_blank">GitHub</a></li>
+            </ul>
+        </nav>
+    </header>
+    
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="../index.html">Home</a> / <a href="../index.html#concepts">Concepts</a> / Provider Architecture
+        </div>
+        
+        <div class="grid">
+            <div class="docs-nav">
+                <h4>Concepts</h4>
+                <ul>
+                    <li><a href="architecture.html">Architecture & Data Flow</a></li>
+                    <li><a href="providers.html" class="active">Provider Architecture</a></li>
+                    <li><a href="tools.html">Tool Integration</a></li>
+                    <li><a href="sessions.html">Session Management</a></li>
+                    <li><a href="context-management.html">Context Management</a></li>
+                </ul>
+                
+                <h4>Related Topics</h4>
+                <ul>
+                    <li><a href="../guides/multi-provider.html">Multi-Provider Guide</a></li>
+                    <li><a href="../guides/provider-switching.html">Provider Switching</a></li>
+                    <li><a href="../api/providers.html">Provider API</a></li>
+                </ul>
+            </div>
+            
+            <div>
+                <article>
+                    <h1>Provider Architecture</h1>
+                    
+                    <p>
+                        The TS-MCP-Client implements a flexible provider architecture that allows you to use different LLM
+                        providers interchangeably with a unified API. This document explains the design and implementation
+                        of the multi-provider system.
+                    </p>
+                    
+                    <h2>Provider Architecture Overview</h2>
+                    
+                    <p>
+                        The provider architecture is built on several key components that work together to provide a unified
+                        interface for different LLM providers.
+                    </p>
+                    
+                    <div class="diagram-container">
+                        <div class="diagram-title">Provider Architecture</div>
+                        <div class="mermaid">
+classDiagram
+    SessionManager --> LLMProviderFactory: Creates
+    LLMProviderFactory --> LLMProviderInterface: Creates
+    LLMProviderInterface <|-- AnthropicProvider: Implements
+    LLMProviderInterface <|-- OpenAIProvider: Implements
+    LLMProviderInterface <|-- GrokProvider: Implements
+    LLMProviderInterface --> ToolAdapter: Uses
+    SessionManager --> ToolAdapter: Uses
+    SessionManager --> ProviderCompatibilityChecker: Uses
+    
+    class SessionManager {
+        +createSession(options): string
+        +sendMessage(sessionId, message): Promise
+        +sendMessageStream(sessionId, message): AsyncGenerator
+        +switchSessionModel(sessionId, provider, modelId): Promise
+    }
+    
+    class LLMProviderFactory {
+        +static providerRegistry: Map
+        +static registerProvider(type, provider)
+        +static getProvider(type, config): LLMProviderInterface
+        +static getAvailableProviders(): string[]
+    }
+    
+    class LLMProviderInterface {
+        <<interface>>
+        +name: string
+        +supportedModels: ModelCapability[]
+        +initialize(config): Promise
+        +sendMessage(message, options): Promise
+        +streamMessage(message, options): AsyncGenerator
+        +parseToolCall(response): ToolCall
+        +formatToolsForProvider(tools): unknown
+    }
+    
+    class ToolAdapter {
+        +adaptToolsForProvider(tools, provider): unknown
+        +parseToolCallFromProvider(response, provider): ToolCall
+    }
+    
+    class ProviderCompatibilityChecker {
+        +checkCompatibility(sourceProvider, targetProvider): CompatibilityResult
+        +getMigrationPlan(sourceProvider, targetProvider): MigrationPlan
+    }
+                        </div>
+                    </div>
+                    
+                    <h2>Provider Interface</h2>
+                    
+                    <p>
+                        All providers implement a common interface that defines the standard capabilities that every provider
+                        must support:
+                    </p>
+                    
+                    <div class="code-block">
+<pre>interface LLMProviderInterface {
+  // Provider identification
+  name: string;
+  supportedModels: ModelCapability[];
+  
+  // Core methods
+  initialize(config: ProviderConfig): Promise<void>;
+  sendMessage(message: string, options: MessageOptions): Promise<LLMResponse>;
+  streamMessage(message: string, options: MessageOptions): AsyncGenerator<LLMResponseChunk>;
+  
+  // Tool-related methods
+  formatToolsForProvider(tools: MCPTool[]): unknown;
+  parseToolCall(response: LLMResponse): ToolCall | null;
+  
+  // Utility methods
+  countTokens(text: string, model?: string): number;
+}</pre>
+                    </div>
+                    
+                    <h2>Supported Providers</h2>
+                    
+                    <p>The TS-MCP-Client currently supports the following providers:</p>
+                    
+                    <div class="provider-card">
+                        <h3>Anthropic</h3>
+                        <p>
+                            Anthropic's Claude models provide powerful natural language processing capabilities with strong reasoning and
+                            tool use support. Claude's thinking mode allows more detailed reasoning steps.
+                        </p>
+                        
+                        <h4>Supported Models</h4>
+                        <table class="model-table">
+                            <thead>
+                                <tr>
+                                    <th>Model</th>
+                                    <th>Context Size</th>
+                                    <th>Features</th>
+                                    <th>Cost (per 1K tokens)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>claude-3-opus-20240229</td>
+                                    <td>200K</td>
+                                    <td>Tools, Thinking, Vision</td>
+                                    <td>$15/$45 (input/output)</td>
+                                </tr>
+                                <tr>
+                                    <td>claude-3-sonnet-20240229</td>
+                                    <td>200K</td>
+                                    <td>Tools, Thinking, Vision</td>
+                                    <td>$3/$15 (input/output)</td>
+                                </tr>
+                                <tr>
+                                    <td>claude-3-haiku-20240307</td>
+                                    <td>200K</td>
+                                    <td>Tools, Vision</td>
+                                    <td>$0.25/$1.25 (input/output)</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        
+                        <h4>Provider-Specific Features</h4>
+                        <div class="card-grid">
+                            <div class="feature-card">
+                                <h4>Thinking Mode</h4>
+                                <p>Claude models support a "thinking" capability that allows the model to show its reasoning process.</p>
+                                <pre>// Enable thinking mode
+const sessionId = await sessionManager.createSession({
+  provider: 'anthropic',
+  thinking: {
+    enabled: true,
+    budget_tokens: 1000
+  }
+});</pre>
+                            </div>
+                            <div class="feature-card">
+                                <h4>Tool Format</h4>
+                                <p>Claude uses a specific tool format for defining tools.</p>
+                                <pre>// Anthropic tool format
+{
+  name: "calculator",
+  description: "A calculator tool",
+  input_schema: {
+    type: "object",
+    properties: {...}
+  }
+}</pre>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="provider-card">
+                        <h3>OpenAI</h3>
+                        <p>
+                            OpenAI's GPT models offer strong capabilities in a wide range of tasks with function calling for tool
+                            integration and vision capabilities for image understanding.
+                        </p>
+                        
+                        <h4>Supported Models</h4>
+                        <table class="model-table">
+                            <thead>
+                                <tr>
+                                    <th>Model</th>
+                                    <th>Context Size</th>
+                                    <th>Features</th>
+                                    <th>Cost (per 1K tokens)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>gpt-4o</td>
+                                    <td>128K</td>
+                                    <td>Function calling, Vision</td>
+                                    <td>$5/$15 (input/output)</td>
+                                </tr>
+                                <tr>
+                                    <td>gpt-4-turbo</td>
+                                    <td>128K</td>
+                                    <td>Function calling, Vision</td>
+                                    <td>$10/$30 (input/output)</td>
+                                </tr>
+                                <tr>
+                                    <td>gpt-3.5-turbo</td>
+                                    <td>16K</td>
+                                    <td>Function calling, Vision</td>
+                                    <td>$0.5/$1.5 (input/output)</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        
+                        <h4>Provider-Specific Features</h4>
+                        <div class="card-grid">
+                            <div class="feature-card">
+                                <h4>Function Calling</h4>
+                                <p>OpenAI uses function calling format for tools, which the adapter converts automatically.</p>
+                                <pre>// OpenAI function format
+{
+  type: "function",
+  function: {
+    name: "calculator",
+    description: "A calculator tool",
+    parameters: {
+      type: "object",
+      properties: {...}
+    }
+  }
+}</pre>
+                            </div>
+                            <div class="feature-card">
+                                <h4>Stream Handling</h4>
+                                <p>Special handling for different OpenAI SDK versions.</p>
+                                <pre>// Automatic adaptation for different OpenAI SDK versions
+// Works with both async iterables and event emitters</pre>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="provider-card">
+                        <h3>Grok</h3>
+                        <p>
+                            xAI's Grok model offers a different approach with its conversational capabilities and tool support.
+                        </p>
+                        
+                        <h4>Supported Models</h4>
+                        <table class="model-table">
+                            <thead>
+                                <tr>
+                                    <th>Model</th>
+                                    <th>Context Size</th>
+                                    <th>Features</th>
+                                    <th>Cost</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>grok-1</td>
+                                    <td>8K</td>
+                                    <td>Tool support</td>
+                                    <td>Varies based on subscription</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <h2>Provider Factory Pattern</h2>
+                    
+                    <p>
+                        The client uses a factory pattern to dynamically create provider instances based on the configuration:
+                    </p>
+                    
+                    <div class="code-block">
+<pre>// Provider factory implementation
+class LLMProviderFactory {
+  // Registry of provider implementations
+  private static providerRegistry: Map<string, new () => LLMProviderInterface> = new Map();
+
+  // Register a provider implementation
+  static registerProvider(
+    type: string,
+    providerClass: new () => LLMProviderInterface
+  ): void {
+    this.providerRegistry.set(type, providerClass);
+  }
+
+  // Get a provider instance by type
+  static async getProvider(
+    type: string,
+    config: ProviderConfig
+  ): Promise<LLMProviderInterface> {
+    const ProviderClass = this.providerRegistry.get(type);
+    if (!ProviderClass) {
+      throw new Error(`Provider type "${type}" is not registered`);
+    }
+
+    const provider = new ProviderClass();
+    await provider.initialize(config);
+    return provider;
+  }
+
+  // Get available providers
+  static getAvailableProviders(): string[] {
+    return Array.from(this.providerRegistry.keys());
+  }
+}</pre>
+                    </div>
+                    
+                    <div class="note">
+                        <strong>Registration:</strong> Providers are registered with the factory at application startup. You can also
+                        register your own custom providers using the same mechanism.
+                    </div>
+                    
+                    <h2>Tool Adaptation</h2>
+                    
+                    <p>
+                        Different providers use different formats for tools. The ToolAdapter component handles the conversion between
+                        different formats:
+                    </p>
+                    
+                    <div class="code-block">
+<pre>// Tool adapter implementation
+class ToolAdapter {
+  // Adapters for different providers
+  private adapters: Record<string, ProviderToolAdapter> = {};
+
+  // Register a tool adapter for a provider
+  registerToolAdapter(provider: string, adapter: ProviderToolAdapter): void {
+    this.adapters[provider] = adapter;
+  }
+
+  // Convert a tool to provider-specific format
+  adaptToolsForProvider(tools: MCPTool[], provider: string): unknown {
+    const adapter = this.adapters[provider];
+    if (!adapter) {
+      throw new Error(`No tool adapter registered for provider "${provider}"`);
+    }
+    return tools.map(tool => adapter.adaptTool(tool));
+  }
+
+  // Parse a tool call from a provider-specific response
+  parseToolCallFromProvider(response: any, provider: string): ToolCall | null {
+    const adapter = this.adapters[provider];
+    if (!adapter) {
+      throw new Error(`No tool adapter registered for provider "${provider}"`);
+    }
+    return adapter.parseToolCall(response);
+  }
+}</pre>
+                    </div>
+                    
+                    <h2>Provider Compatibility</h2>
+                    
+                    <p>
+                        The ProviderCompatibilityChecker helps determine if switching between providers is feasible and what
+                        adaptations might be needed:
+                    </p>
+                    
+                    <div class="code-block">
+<pre>// Provider compatibility checking
+class ProviderCompatibilityChecker {
+  // Check compatibility between providers
+  checkCompatibility(
+    sourceProvider: string,
+    sourceModel: string,
+    targetProvider: string,
+    targetModel: string
+  ): CompatibilityResult {
+    // Check context window compatibility
+    const contextCompatibility = this.checkContextWindowCompatibility(
+      sourceProvider, sourceModel, targetProvider, targetModel
+    );
+    
+    // Check tool compatibility
+    const toolCompatibility = this.checkToolCompatibility(
+      sourceProvider, targetProvider
+    );
+    
+    // Check other capabilities
+    const capabilityCompatibility = this.checkCapabilityCompatibility(
+      sourceProvider, sourceModel, targetProvider, targetModel
+    );
+    
+    // Determine overall compatibility
+    const issues = [
+      ...contextCompatibility.issues,
+      ...toolCompatibility.issues,
+      ...capabilityCompatibility.issues
+    ];
+    
+    return {
+      compatible: issues.every(i => i.severity !== 'error'),
+      issues
+    };
+  }
+  
+  // Generate a migration plan
+  getMigrationPlan(
+    sourceProvider: string,
+    sourceModel: string,
+    targetProvider: string,
+    targetModel: string,
+    options: { currentContextSize: number }
+  ): MigrationPlan {
+    // Generate plan for adapting context
+    // Calculate token impact
+    // Determine required actions
+    // ...
+  }
+}</pre>
+                    </div>
+                    
+                    <h2>Session Model Switching</h2>
+                    
+                    <p>
+                        The SessionManager provides methods for switching between different providers and models during an active
+                        session:
+                    </p>
+                    
+                    <div class="code-block">
+<pre>// Session model switching
+async function switchSessionModel(
+  sessionId: string,
+  provider: string,
+  modelId: string,
+  options: {
+    preserveContext?: boolean;
+    adaptToolCalls?: boolean;
+    customPrompt?: string;
+    maxTokens?: number;
+  } = {}
+): Promise<void> {
+  // Get current session
+  const session = this.getSession(sessionId);
+  if (!session) {
+    throw new Error(`Session ${sessionId} not found`);
+  }
+  
+  // Check compatibility
+  const compatibility = await this.checkProviderCompatibility(
+    sessionId, provider, modelId
+  );
+  
+  if (!compatibility.compatible) {
+    throw new Error(
+      `Incompatible provider switch: ${compatibility.issues.map(i => i.description).join(', ')}`
+    );
+  }
+  
+  // Generate migration plan
+  const plan = await this.getMigrationPlan(
+    sessionId, provider, modelId, options
+  );
+  
+  // Apply migration plan
+  // Update messages
+  // Adapt tools
+  // Create new session with target provider
+  
+  // Update session state
+  session.provider = provider;
+  session.modelId = modelId;
+  session.previousProviders.push({
+    provider: session.provider,
+    modelId: session.modelId,
+    switchTime: new Date()
+  });
+  
+  // Add transition message if needed
+  if (options.customPrompt) {
+    await this.addSystemNote(sessionId, options.customPrompt);
+  }
+}</pre>
+                    </div>
+                    
+                    <h2>Provider Configuration</h2>
+                    
+                    <p>
+                        The configuration system supports configuring multiple providers:
+                    </p>
+                    
+                    <div class="code-block">
+<pre>// Multi-provider configuration
+interface MCPConfig {
+  // Provider configurations
+  providers: Record<string, ProviderConfig>;
+  // Default provider to use if not specified
+  default_provider: string;
+  // Default models for each provider
+  default_models?: Record<string, string>;
+  // Fallback chain for provider failures
+  fallback_chain?: string[];
+  // Server configurations
+  servers?: Record<string, ServerConfig>;
+  // Token optimization settings
+  token_optimization?: TokenOptimizationConfig;
+}
+
+// Provider-specific configuration
+interface ProviderConfig {
+  // API key for the provider
+  api_key: string;
+  // Default model to use
+  default_model: string;
+  // System prompt for conversations
+  system_prompt: string;
+  // Provider-specific settings
+  [key: string]: any;
+}</pre>
+                    </div>
+                    
+                    <div class="next-steps">
+                        <h3>Next Steps</h3>
+                        <p>Now that you understand the provider architecture, you might want to explore:</p>
+                        <ul>
+                            <li><a href="../guides/multi-provider.html">Multi-Provider Guide</a> - Learn how to use multiple providers in practice</li>
+                            <li><a href="../guides/provider-switching.html">Provider Switching</a> - Discover techniques for switching between providers</li>
+                            <li><a href="tools.html">Tool Integration</a> - Understand how tools work with multiple providers</li>
+                        </ul>
+                    </div>
+                </article>
+            </div>
+        </div>
+    </main>
+    
+    <footer>
+        <div class="container">
+            <p>&copy; 2024 TS-MCP-Client Documentation. Version 1.2.1.</p>
+        </div>
+    </footer>
+</body>
+</html> 

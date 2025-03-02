@@ -146,53 +146,69 @@ describe('Conversation Summarization', () => {
   describe('Integration with SessionManager', () => {
     it('should integrate with optimizeContext for summarization strategy', async () => {
       // Arrange
-      const sessionId = 'test-session';
-
-      // Create a mock session directly
       const mockSession = {
-        id: sessionId,
-        messages: [],
-        tokenMetrics: { totalTokens: 200 },
-        config: { model: mockModel },
-        contextSettings: {
-          maxTokenLimit: 100,
-          autoTruncate: true,
-          preserveSystemMessages: true,
-          preserveRecentMessages: 2,
-          truncationStrategy: 'summarize',
+        id: 'test-session',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a helpful assistant',
+            tokens: 10,
+          },
+          { role: 'user', content: 'Hello', tokens: 5 },
+          { role: 'assistant', content: 'Hi there', tokens: 5 },
+          { role: 'user', content: 'How are you?', tokens: 5 },
+          { role: 'assistant', content: 'I am fine', tokens: 5 },
+          { role: 'user', content: 'Tell me about AI', tokens: 10 },
+          { role: 'assistant', content: 'AI is...', tokens: 50 },
+          { role: 'user', content: 'Tell me more', tokens: 5 },
+          { role: 'assistant', content: 'Sure...', tokens: 50 },
+          { role: 'user', content: 'One more question', tokens: 5 },
+          { role: 'assistant', content: 'Yes?', tokens: 5 },
+        ],
+        config: { model: 'claude-3-sonnet-20240229' },
+        tokenMetrics: {
+          totalTokens: 200,
+          userTokens: 50,
+          assistantTokens: 100,
+          systemTokens: 20,
+          toolTokens: 30,
+          percentUsed: 90,
+          maxContextTokens: 200,
+          recommendation:
+            'Context window is almost full, consider optimization.',
         },
         isContextWindowCritical: true,
+        contextSettings: {
+          maxTokenLimit: 200,
+          autoTruncate: true,
+          preserveSystemMessages: true,
+          preserveRecentMessages: 4,
+          truncationStrategy: 'summarize',
+        },
       };
 
-      // Add messages to the mock session
-      for (let i = 0; i < 10; i++) {
-        mockSession.messages.push({
-          role: i % 2 === 0 ? 'user' : 'assistant',
-          content: `Message ${i}`,
-          tokens: 20,
-          id: `msg-${i}`,
+      // Create stubs and spies
+      const truncateBySummarizationStub = sinon
+        .stub(SessionManager.prototype, 'truncateBySummarization')
+        .resolves([]);
+      const sessionManager = new SessionManager();
+      const getSessionStub = sinon
+        .stub(sessionManager, 'getSession')
+        .returns(mockSession as any);
+      const updateMetricsStub = sinon
+        .stub(sessionManager, 'updateTokenMetrics')
+        .returns({
+          totalTokens: 100,
+          userTokens: 25,
+          assistantTokens: 50,
+          systemTokens: 10,
+          toolTokens: 15,
+          percentUsed: 50,
+          maxContextTokens: 200,
         });
-      }
-
-      // Mock the getSession method
-      const getSessionStub = sandbox.stub(sessionManager, 'getSession');
-      getSessionStub.returns(mockSession);
-
-      // Mock methods to avoid actually modifying the session in the test
-      sandbox.stub(sessionManager, 'truncateByRelevance');
-      const truncateBySummarizationStub = sandbox.stub(
-        sessionManager,
-        'truncateBySummarization'
-      );
-      truncateBySummarizationStub.resolves({ totalTokens: 100 });
-
-      // Mock getSessionTokenUsage to return a valid result
-      sandbox
-        .stub(sessionManager, 'getSessionTokenUsage')
-        .returns({ totalTokens: 100 });
 
       // Act
-      await sessionManager.optimizeContext(sessionId);
+      await sessionManager.optimizeContext('test-session');
 
       // Assert
       expect(truncateBySummarizationStub.calledOnce).to.be.true;

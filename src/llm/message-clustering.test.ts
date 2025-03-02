@@ -447,60 +447,74 @@ describe('Message Clustering', () => {
 
   describe('integration with SessionManager', () => {
     it('should integrate with optimizeContext method', async () => {
-      // Create session with messages
-      const config = {
-        type: 'claude',
-        api_key: 'test-key',
-        model: 'claude-3-5-sonnet-20241022',
-        system_prompt: 'You are a helpful assistant.',
-        token_optimization: {
-          truncation_strategy: 'cluster',
-          auto_truncate: true,
-        },
-      };
+      // Setup spy on handleClusterTruncation
+      const handleClusterTruncationSpy = vi.spyOn(
+        messageClustering,
+        'handleClusterTruncation'
+      );
 
-      // Mock the session manager's methods to avoid actual API calls
+      // Create a mock session with critical context window
       const mockSession = {
         id: 'test-session',
-        messages: mockMessages,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a helpful assistant',
+            tokens: 10,
+          },
+          { role: 'user', content: 'Hello', tokens: 5 },
+          { role: 'assistant', content: 'Hi there', tokens: 5 },
+          { role: 'user', content: 'How are you?', tokens: 5 },
+          { role: 'assistant', content: 'I am fine', tokens: 5 },
+          { role: 'user', content: 'Tell me about AI', tokens: 10 },
+          { role: 'assistant', content: 'AI is...', tokens: 50 },
+          { role: 'user', content: 'Tell me more', tokens: 5 },
+          { role: 'assistant', content: 'Sure...', tokens: 50 },
+          { role: 'user', content: 'One more question', tokens: 5 },
+          { role: 'assistant', content: 'Yes?', tokens: 5 },
+        ],
+        config: { model: 'claude-3-sonnet-20240229' },
+        tokenMetrics: {
+          totalTokens: 500,
+          userTokens: 200,
+          assistantTokens: 200,
+          systemTokens: 50,
+          toolTokens: 50,
+          percentUsed: 90,
+          maxContextTokens: 1000,
+          recommendation:
+            'Context window is almost full, consider optimization.',
+        },
+        isContextWindowCritical: true, // Force optimization
         contextSettings: {
-          truncationStrategy: 'cluster',
+          maxTokenLimit: 1000,
           autoTruncate: true,
           preserveSystemMessages: true,
-          preserveRecentMessages: 2,
+          preserveRecentMessages: 4,
+          truncationStrategy: 'cluster', // Set to cluster for this test!
         },
-        isContextWindowCritical: true,
-        config,
-        serverClients: new Map(),
-        createdAt: new Date(),
-        lastActivityAt: new Date(),
-        maxToolCalls: 5,
-        toolCallCount: 0,
-        tools: [],
-        resources: [],
       };
 
-      // Override the getSession method to return our mock session
-      vi.spyOn(sessionManager, 'getSession').mockReturnValue(mockSession);
+      // Create SessionManager instance
+      const sessionManager = new SessionManager();
 
+      // Stub getSession to return our mock
+      vi.spyOn(sessionManager, 'getSession').mockReturnValue(
+        mockSession as any
+      );
+
+      // Stub updateTokenMetrics
       vi.spyOn(sessionManager, 'updateTokenMetrics').mockReturnValue({
         totalTokens: 100,
-        percentUsed: 50,
-      } as any);
-
-      // Mock the handleClusterTruncation function
-      const handleClusterTruncationSpy = vi
-        .spyOn(messageClustering, 'handleClusterTruncation')
-        .mockReturnValue(mockMessages.slice(0, 5));
-
-      // We need to also mock the store of sessions
-      const globalSessionsSet = vi.fn();
-      vi.stubGlobal('globalSessions', {
-        set: globalSessionsSet,
-        get: () => mockSession,
+        userTokens: 40,
+        assistantTokens: 40,
+        systemTokens: 10,
+        toolTokens: 10,
+        percentUsed: 10,
+        maxContextTokens: 1000,
       });
 
-      // Act - Call optimizeContext directly
+      // Act
       await sessionManager.optimizeContext('test-session');
 
       // Assert

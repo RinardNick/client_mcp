@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Architecture & Data Flow - TS-MCP-Client Documentation</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --primary-focus: rgba(99, 102, 241, 0.125);
+            --primary-inverse: #FFF;
+        }
+        
+        body > header {
+            background-color: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 2rem 0;
+        }
+        
+        body > main {
+            padding: 2rem 0;
+        }
+        
+        body > footer {
+            background-color: #f9fafb;
+            border-top: 1px solid #e5e7eb;
+            padding: 2rem 0;
+            text-align: center;
+        }
+        
+        .version-badge {
+            display: inline-block;
+            background-color: var(--primary);
+            color: white;
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+        }
+        
+        .breadcrumb {
+            margin-bottom: 2rem;
+            color: #6b7280;
+        }
+        
+        .breadcrumb a {
+            color: #4b5563;
+            text-decoration: none;
+        }
+        
+        .breadcrumb a:hover {
+            text-decoration: underline;
+        }
+        
+        .code-block {
+            background-color: #1e293b;
+            color: #e2e8f0;
+            border-radius: 8px;
+            padding: 1rem;
+            overflow-x: auto;
+            font-family: 'Fira Code', 'Courier New', Courier, monospace;
+        }
+        
+        .next-steps {
+            background-color: #f8fafc;
+            padding: 2rem;
+            border-radius: 8px;
+            margin: 2rem 0;
+        }
+        
+        .docs-nav {
+            position: sticky;
+            top: 20px;
+        }
+        
+        .docs-nav ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .docs-nav li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .docs-nav a {
+            color: #4b5563;
+            text-decoration: none;
+            display: block;
+            padding: 0.5rem;
+            border-radius: 4px;
+        }
+        
+        .docs-nav a:hover {
+            background-color: #f3f4f6;
+        }
+        
+        .docs-nav a.active {
+            background-color: var(--primary-focus);
+            color: var(--primary);
+            font-weight: bold;
+        }
+        
+        .note {
+            background-color: #eff6ff;
+            border-left: 4px solid var(--primary);
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .diagram-container {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+            margin: 2rem 0;
+            padding: 1.5rem;
+            overflow-x: auto;
+        }
+        
+        .diagram-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #374151;
+        }
+        
+        .component-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+        
+        .component-card {
+            background-color: #f8fafc;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
+        
+        .component-card h3 {
+            color: var(--primary);
+            margin-top: 0;
+            font-size: 1.25rem;
+        }
+        
+        .component-card ul {
+            padding-left: 1.5rem;
+            margin-bottom: 0;
+        }
+        
+        .component-card li {
+            margin-bottom: 0.5rem;
+        }
+    </style>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            mermaid.initialize({
+                startOnLoad: true,
+                theme: 'neutral',
+                flowchart: { useMaxWidth: false },
+                sequence: { useMaxWidth: false },
+                stateDiagram: { useMaxWidth: false },
+                classDiagram: { useMaxWidth: false }
+            });
+        });
+    </script>
+</head>
+<body>
+    <header>
+        <nav class="container">
+            <ul>
+                <li><a href="../index.html"><strong>TS-MCP-Client</strong><span class="version-badge">v1.2.1</span></a></li>
+            </ul>
+            <ul>
+                <li><a href="../index.html#getting-started">Getting Started</a></li>
+                <li><a href="../index.html#features">Features</a></li>
+                <li><a href="../index.html#examples">Examples</a></li>
+                <li><a href="../index.html#api">API</a></li>
+                <li><a href="https://github.com/yourusername/client_mcp" target="_blank">GitHub</a></li>
+            </ul>
+        </nav>
+    </header>
+    
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="../index.html">Home</a> / <a href="../index.html#concepts">Concepts</a> / Architecture & Data Flow
+        </div>
+        
+        <div class="grid">
+            <div class="docs-nav">
+                <h4>Concepts</h4>
+                <ul>
+                    <li><a href="architecture.html" class="active">Architecture & Data Flow</a></li>
+                    <li><a href="providers.html">Provider Architecture</a></li>
+                    <li><a href="tools.html">Tool Integration</a></li>
+                    <li><a href="sessions.html">Session Management</a></li>
+                    <li><a href="context-management.html">Context Management</a></li>
+                </ul>
+                
+                <h4>Related Topics</h4>
+                <ul>
+                    <li><a href="../guides/multi-provider.html">Multi-Provider Guide</a></li>
+                    <li><a href="../guides/provider-switching.html">Provider Switching</a></li>
+                    <li><a href="../guides/tool-integration.html">Tool Integration Guide</a></li>
+                </ul>
+            </div>
+            
+            <div>
+                <article>
+                    <h1>MCP Client Architecture & Data Flow</h1>
+                    
+                    <p>
+                        This document explains the architecture and data flow in the TS-MCP-Client,
+                        detailing how components interact to manage LLM chat sessions, tool executions,
+                        and provider switching.
+                    </p>
+                    
+                    <h2>Component Responsibilities</h2>
+                    
+                    <div class="component-list">
+                        <div class="component-card">
+                            <h3>User</h3>
+                            <ul>
+                                <li>Initiates conversations through the chat interface</li>
+                                <li>Views real-time progress of tool executions and LLM responses</li>
+                                <li>Receives and interprets different types of messages (thinking, tool execution, results)</li>
+                                <li>Selects preferred LLM provider and model when supported</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="component-card">
+                            <h3>Host (MCP Host)</h3>
+                            <ul>
+                                <li>Provides web-based user interface</li>
+                                <li>Renders chat messages and tool outputs</li>
+                                <li>Displays real-time streaming updates</li>
+                                <li>Shows loading and error states</li>
+                                <li>Handles user input and interaction</li>
+                                <li>Forwards messages to client</li>
+                                <li>Maintains minimal UI state (loading flags, display preferences)</li>
+                                <li>Provides debugging interface for development</li>
+                                <li>Shows available tools in the UI</li>
+                                <li>Displays provider selection options</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="component-card">
+                            <h3>Client (TS-MCP-Client)</h3>
+                            <ul>
+                                <li>Manages all session state and lifecycle</li>
+                                <li>Handles session persistence and recovery</li>
+                                <li>Tracks session activity and expiry</li>
+                                <li>Coordinates all LLM interactions across multiple providers</li>
+                                <li>Manages server lifecycle through SDK</li>
+                                <li>Leverages SDK for tool discovery and execution</li>
+                                <li>Enforces tool call limits</li>
+                                <li>Maintains conversation history</li>
+                                <li>Provides streaming updates of operations</li>
+                                <li>Handles error recovery and retries</li>
+                                <li>Maintains server capabilities registry</li>
+                                <li>Manages configuration validation and loading</li>
+                                <li>Normalizes tool formats across different providers</li>
+                                <li>Adapts conversation context for different model capabilities</li>
+                                <li>Optimizes token usage through smart context management</li>
+                                <li>Detects provider compatibility issues</li>
+                                <li>Provides cost estimation and optimization</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="component-card">
+                            <h3>MCP Servers</h3>
+                            <ul>
+                                <li>Expose tool capabilities through standard JSON-RPC 2.0 endpoints</li>
+                                <li>Execute tool requests according to MCP protocol</li>
+                                <li>Provide health status through SDK protocol handshake</li>
+                                <li>Return tool results or errors in SDK-compliant format</li>
+                                <li>Maintain their own state and cleanup</li>
+                                <li>Handle resource management and access control</li>
+                                <li>Implement server-specific security measures</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="component-card">
+                            <h3>LLM Providers</h3>
+                            <ul>
+                                <li>Process messages with context</li>
+                                <li>Make decisions about tool usage</li>
+                                <li>Format tool call requests</li>
+                                <li>Interpret tool results</li>
+                                <li>Maintain conversation coherence</li>
+                                <li>Provide natural language responses</li>
+                                <li>Adhere to system prompts and constraints</li>
+                                <li>Manage token limits and response formatting</li>
+                                <li>Expose provider-specific capabilities</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <h2>System Components Flow Diagram</h2>
+                    
+                    <p>This diagram shows the interaction between different components during initialization and message flow:</p>
+                    
+                    <div class="diagram-container">
+                        <div class="diagram-title">System Components Flow</div>
+                        <div class="mermaid">
+sequenceDiagram
+    participant U as User
+    participant H as Host
+    participant C as Client
+    participant P as Provider Adapter
+    participant S as SDK
+    participant M as MCP Servers
+    participant L as LLM Providers
+
+    %% Initialization Flow
+    U->>H: Open Chat Interface
+    H->>C: Initialize Client
+    C->>C: Load Config
+    C->>P: Create Provider(s)
+    C->>S: Create MCP Client
+    S->>M: Launch Servers
+    S->>M: Protocol Handshake
+    M-->>S: Protocol Version
+    S->>M: Get Capabilities (JSON-RPC)
+    M-->>S: Tool List (JSON-RPC)
+    C->>P: Initialize Session with Tools
+    P->>L: Create Session with Provider
+    L-->>P: Session Created
+    P-->>C: Provider Session Ready
+    C->>C: Store Session State
+    C-->>H: Session Ready + Tools List + Available Providers
+    H-->>U: Display Interface
+
+    %% Message Flow
+    U->>H: Send Message
+    H->>C: Forward Message
+    C->>C: Update Session Activity
+    C->>P: Adapt Message for Provider
+    P->>L: Send w/Tools Context
+    L-->>P: Response w/Tool Call
+    P-->>C: Normalized Tool Call
+
+    Note over H,C: Begin Streaming
+    C-->>H: Stream: Thinking
+    H-->>U: Display Thinking
+
+    C->>S: Execute Tool via SDK
+    S->>M: JSON-RPC Tool Call
+    M-->>S: JSON-RPC Response
+    S-->>C: Tool Result
+    C-->>H: Stream: Tool Result
+    H-->>U: Display Tool Result
+
+    C->>P: Send Tool Result
+    P->>L: Forward Tool Result to Provider
+    L-->>P: Final Response
+    P-->>C: Normalized Response
+    C->>C: Update Session State
+    C-->>H: Stream: Content
+    H-->>U: Display Content
+                        </div>
+                    </div>
+                    
+                    <h2>Provider Management Flow</h2>
+                    
+                    <p>The following diagram illustrates the provider management flow, including initialization, switching, and tool execution:</p>
+                    
+                    <div class="diagram-container">
+                        <div class="diagram-title">Provider Management Flow</div>
+                        <div class="mermaid">
+stateDiagram-v2
+    [*] --> Configuration: Load Configuration
+    Configuration --> ProviderInitialization: Create Provider Factory
+    ProviderInitialization --> ProviderRegistry: Register Available Providers
+    ProviderRegistry --> DefaultProvider: Select Default Provider
+    DefaultProvider --> Ready: Provider Ready
+
+    Ready --> ProviderSwitch: Switch Provider Request
+    ProviderSwitch --> CompatibilityCheck: Check Compatibility
+    CompatibilityCheck --> MigrationPlan: Generate Migration Plan
+    MigrationPlan --> ContextAdaptation: Adapt Conversation Context
+    ContextAdaptation --> Ready: Provider Ready
+
+    Ready --> ToolExecution: Execute Tool
+    ToolExecution --> ToolAdaptation: Adapt Tool Format
+    ToolAdaptation --> ToolExecution: Execute Adapted Tool
+    ToolExecution --> Ready: Tool Complete
+                        </div>
+                    </div>
+                    
+                    <h2>Multi-Provider Support</h2>
+                    
+                    <p>This class diagram shows the implementation of the multi-provider architecture:</p>
+                    
+                    <div class="diagram-container">
+                        <div class="diagram-title">Multi-Provider Architecture</div>
+                        <div class="mermaid">
+classDiagram
+    class LLMProviderFactory {
+        +static providerRegistry: Map
+        +static registerProvider(type, providerClass)
+        +static getProvider(type, config): Provider
+        +static getAvailableProviders(): string[]
+    }
+
+    class LLMProviderInterface {
+        <<interface>>
+        +name: string
+        +supportedModels: ModelCapability[]
+        +initialize(config): Promise
+        +formatToolsForProvider(tools): any[]
+        +parseToolCall(response): ToolCall
+        +countTokens(text, model): number
+        +sendMessage(message, options): Promise
+        +streamMessage(message, options): AsyncGenerator
+    }
+
+    class AnthropicProvider {
+        +name: "anthropic"
+        +initialize(config): Promise
+        +formatToolsForProvider(tools): any[]
+        +parseToolCall(response): ToolCall
+    }
+
+    class OpenAIProvider {
+        +name: "openai"
+        +initialize(config): Promise
+        +formatToolsForProvider(tools): any[]
+        +parseToolCall(response): ToolCall
+    }
+
+    class GrokProvider {
+        +name: "grok"
+        +initialize(config): Promise
+        +formatToolsForProvider(tools): any[]
+        +parseToolCall(response): ToolCall
+    }
+
+    LLMProviderInterface <|.. AnthropicProvider
+    LLMProviderInterface <|.. OpenAIProvider
+    LLMProviderInterface <|.. GrokProvider
+    LLMProviderFactory ..> LLMProviderInterface : creates
+                        </div>
+                    </div>
+                    
+                    <h2>Server Lifecycle Management</h2>
+                    
+                    <h3>Server Launch and Discovery Flow</h3>
+                    
+                    <div class="diagram-container">
+                        <div class="diagram-title">Server Launch and Discovery Flow</div>
+                        <div class="mermaid">
+stateDiagram-v2
+    [*] --> Launching: Launch Server
+    Launching --> SDKHandshake: Server Started
+    SDKHandshake --> CapabilityDiscovery: Protocol Verified
+    CapabilityDiscovery --> Ready: Tools & Resources Discovered
+    Ready --> Active: Begin Tool Execution
+    Active --> Ready: Tool Complete
+    Active --> Error: Tool Error
+    Error --> Ready: Error Handled
+    Ready --> [*]: Shutdown
+                        </div>
+                    </div>
+                    
+                    <h3>SDK Health Management Flow</h3>
+                    
+                    <div class="diagram-container">
+                        <div class="diagram-title">SDK Health Management Flow</div>
+                        <div class="mermaid">
+sequenceDiagram
+    participant C as Client
+    participant S as SDK Client
+    participant M as MCP Server
+
+    C->>S: createMCPClient(transport)
+    activate S
+    S->>M: Protocol Handshake
+    M-->>S: Protocol Version
+    S->>M: Capability Query
+    M-->>S: Capabilities
+    S-->>C: Initialized Client
+    deactivate S
+
+    Note over C,M: Health Verification Built into Protocol
+
+    C->>S: invokeTool()
+    activate S
+    S->>M: JSON-RPC Call
+    M-->>S: Response
+    S-->>C: Result
+    deactivate S
+
+    Note over C,M: Connection Health Auto-Managed
+                        </div>
+                    </div>
+                    
+                    <h2>Tool Adaptation Flow</h2>
+                    
+                    <p>This diagram shows how tools are adapted between different providers:</p>
+                    
+                    <div class="diagram-container">
+                        <div class="diagram-title">Tool Adaptation Flow</div>
+                        <div class="mermaid">
+sequenceDiagram
+    participant C as Client
+    participant A as Tool Adapter
+    participant P as Provider
+
+    C->>A: adaptToolsForProvider(tools, provider)
+    A->>A: Get adapter for provider
+    A->>P: Convert tools to provider format
+    P-->>A: Provider-specific tool format
+    A-->>C: Adapted tools
+
+    C->>P: Send message with tools
+    P-->>C: Response with tool call
+
+    C->>A: parseToolCallFromProvider(response, provider)
+    A->>A: Get adapter for provider
+    A->>P: Extract tool call data
+    P-->>A: Provider-specific tool call
+    A-->>A: Convert to canonical format
+    A-->>C: Normalized tool call
+                        </div>
+                    </div>
+                    
+                    <h2>Error Handling Flow</h2>
+                    
+                    <h3>SDK Error Types</h3>
+                    
+                    <div class="code-block">
+<pre>type MCPErrorCode =
+  | -32700 // Parse error
+  | -32600 // Invalid request
+  | -32601 // Method not found
+  | -32602 // Invalid params
+  | -32603 // Internal error
+  | -32000 // Server error
+  | -32001 // Connection error
+  | -32002; // Protocol error;
+
+interface MCPError {
+  code: MCPErrorCode;
+  message: string;
+  data?: unknown;
+}
+
+// Error handling in discovery
+try {
+  const client = await createMCPClient(transport);
+} catch (error) {
+  if (error.code === -32001) {
+    // Handle connection errors
+  } else if (error.code === -32002) {
+    // Handle protocol errors
+  }
+}</pre>
+                    </div>
+                    
+                    <h3>Error Recovery Flow</h3>
+                    
+                    <div class="diagram-container">
+                        <div class="diagram-title">Error Recovery Flow</div>
+                        <div class="mermaid">
+stateDiagram-v2
+    [*] --> Connecting: Create Client
+    Connecting --> Connected: Protocol Handshake
+    Connected --> Error: Connection Lost
+    Error --> Retry: Attempt Reconnect
+    Retry --> Connected: Success
+    Retry --> Failed: Max Retries
+    Failed --> [*]: Report Error
+                        </div>
+                    </div>
+                    
+                    <h2>Provider Compatibility</h2>
+                    
+                    <p>This diagram shows the process of checking compatibility between providers and generating migration plans:</p>
+                    
+                    <div class="diagram-container">
+                        <div class="diagram-title">Provider Compatibility Flow</div>
+                        <div class="mermaid">
+sequenceDiagram
+    participant C as Client
+    participant CC as Compatibility Checker
+    participant PS as Current Provider Session
+    participant PT as Target Provider
+
+    C->>CC: checkCompatibility(sourceProvider, targetProvider)
+    CC->>CC: Run compatibility checks
+    CC->>CC: Calculate compatibility score
+    CC-->>C: Compatibility result
+
+    C->>CC: getMigrationPlan(sourceProvider, targetProvider)
+    CC->>CC: Analyze context impact
+    CC->>CC: Generate required actions
+    CC->>CC: List potential data loss
+    CC-->>C: Migration plan
+
+    C->>PS: Get current session state
+    PS-->>C: Session messages and context
+    C->>C: Apply migration plan
+    C->>PT: Create new session with adapted context
+    PT-->>C: New provider session
+                        </div>
+                    </div>
+                    
+                    <h2>Implementation Notes</h2>
+                    
+                    <h3>Multi-Provider Configuration</h3>
+                    
+                    <div class="code-block">
+<pre>// Multi-provider configuration
+const config = {
+  providers: {
+    anthropic: {
+      api_key: 'sk-ant-...',
+      default_model: 'claude-3-opus-20240229',
+      system_prompt: 'You are a helpful assistant...',
+    },
+    openai: {
+      api_key: 'sk-...',
+      default_model: 'gpt-4-turbo',
+      system_prompt: 'You are a helpful assistant...',
+    }
+  },
+  default_provider: 'anthropic',
+  servers: {
+    calculator: {
+      command: 'node',
+      args: ['calculator-server.js'],
+    }
+  }
+};
+
+// Create session with specific provider
+const session = await createSession({
+  provider: 'anthropic',
+  model: 'claude-3-sonnet-20240229'
+});
+
+// Switch provider mid-conversation
+await switchSessionProvider(sessionId, 'openai', 'gpt-4o');</pre>
+                    </div>
+                    
+                    <h3>Tool Adaptation</h3>
+                    
+                    <div class="code-block">
+<pre>// Using the tool adapter
+import { ToolAdapter } from '@rinardnick/client_mcp';
+
+const toolAdapter = new ToolAdapter();
+
+// Convert tools to provider-specific format
+const anthropicTools = toolAdapter.adaptToolsForProvider(tools, 'anthropic');
+const openaiTools = toolAdapter.adaptToolsForProvider(tools, 'openai');
+
+// Parse tool calls from different providers
+const toolCall = toolAdapter.parseToolCallFromProvider(response, providerName);</pre>
+                    </div>
+                    
+                    <h3>Provider Compatibility</h3>
+                    
+                    <div class="code-block">
+<pre>// Check compatibility between providers
+import { ProviderCompatibilityChecker } from '@rinardnick/client_mcp';
+
+const checker = new ProviderCompatibilityChecker();
+
+// Check if providers are compatible
+const compatibility = checker.checkCompatibility(
+  'anthropic',
+  'claude-3-opus-20240229',
+  'openai',
+  'gpt-4o'
+);
+
+// Get migration plan when switching providers
+const plan = checker.getMigrationPlan(
+  'anthropic',
+  'claude-3-opus-20240229',
+  'openai',
+  'gpt-4o',
+  { currentContextSize: 15000 }
+);</pre>
+                    </div>
+                    
+                    <h3>Performance Considerations</h3>
+                    
+                    <ol>
+                        <li>
+                            <strong>Provider Selection</strong>
+                            <ul>
+                                <li>Choose providers based on capability requirements</li>
+                                <li>Consider cost differences between providers</li>
+                                <li>Use compatibility checker when switching providers</li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>Tool Adaptation</strong>
+                            <ul>
+                                <li>Use the tool adapter for cross-provider compatibility</li>
+                                <li>Implement provider-specific fallbacks for unsupported features</li>
+                                <li>Cache adapted tools to improve performance</li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>Context Management</strong>
+                            <ul>
+                                <li>Implement smart truncation when switching to models with smaller context windows</li>
+                                <li>Use conversation summarization for longer conversations</li>
+                                <li>Track token usage across different providers</li>
+                            </ul>
+                        </li>
+                    </ol>
+                    
+                    <div class="next-steps">
+                        <h3>Next Steps</h3>
+                        <p>Now that you understand the TS-MCP-Client architecture, you might want to explore:</p>
+                        <ul>
+                            <li><a href="providers.html">Provider Architecture</a> - Learn more about the provider system</li>
+                            <li><a href="tools.html">Tool Integration</a> - Understand how tools are integrated</li>
+                            <li><a href="../guides/multi-provider.html">Multi-Provider Guide</a> - Practical guide for using multiple providers</li>
+                        </ul>
+                    </div>
+                </article>
+            </div>
+        </div>
+    </main>
+    
+    <footer>
+        <div class="container">
+            <p>&copy; 2024 TS-MCP-Client Documentation. Version 1.2.1.</p>
+        </div>
+    </footer>
+</body>
+</html> 

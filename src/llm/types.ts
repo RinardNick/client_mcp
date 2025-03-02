@@ -108,6 +108,10 @@ export interface ContextSettings {
   timeBetweenSummarizations?: number; // Minutes between summarizations
   detectTopicChanges?: boolean; // Whether to detect topic changes for summarization
   adaptiveSummarizationAggressiveness?: boolean; // Adjust summarization aggressiveness based on context pressure
+
+  /* Adaptive strategy settings */
+  adaptiveStrategyEnabled?: boolean; // Enable dynamic strategy selection
+  strategySelectionThreshold?: number; // Minimum performance data needed before relying on past performance
 }
 
 /**

@@ -37,6 +37,10 @@ import { checkAndTriggerSummarization } from './dynamic-summarization';
 import { relevancePruning } from './relevance-pruning';
 import { truncateBySummarization } from './conversation-summarization';
 import { handleClusterTruncation } from './message-clustering';
+import {
+  applyAdaptiveStrategy,
+  trackStrategyPerformance,
+} from './adaptive-context-strategy';
 
 // Note: Both of these interfaces are now imported from types.ts
 // So we don't need to re-declare them here
@@ -1762,32 +1766,73 @@ export class SessionManager {
 
     console.log(`[SESSION] Applying context optimization for ${sessionId}`);
 
-    // Select optimization strategy based on config
-    if (session.contextSettings.truncationStrategy === 'summarize') {
+    // Calculate target token count (70% of context window)
+    const targetTokens = Math.floor(
+      (session.contextSettings?.maxTokenLimit ||
+        getContextLimit(session.config.model)) * 0.7
+    );
+
+    // Get token count before optimization
+    const preOptimizationTokens = session.messages.reduce(
+      (sum, msg) => sum + (msg.tokens || 0),
+      0
+    );
+
+    // Check if adaptive strategy is enabled
+    let actualStrategy = session.contextSettings.truncationStrategy;
+
+    if (session.contextSettings.adaptiveStrategyEnabled) {
+      // Apply adaptive strategy selection
+      actualStrategy = applyAdaptiveStrategy(session, targetTokens);
+      console.log(
+        `[SESSION] Using ${actualStrategy} (selected by adaptive strategy)`
+      );
+    } else {
+      console.log(
+        `[SESSION] Using ${actualStrategy} (from static configuration)`
+      );
+    }
+
+    // Select optimization strategy based on selected strategy
+    if (actualStrategy === 'summarize') {
       // Use conversation summarization strategy
       await this.truncateBySummarization(session);
-      // Get updated token metrics after summarization
-      return this.getSessionTokenUsage(sessionId);
-    } else if (session.contextSettings.truncationStrategy === 'selective') {
+    } else if (
+      actualStrategy === 'selective' ||
+      actualStrategy === 'relevance'
+    ) {
       // Use relevance-based pruning for selective strategy
       this.truncateByRelevance(session);
-    } else if (session.contextSettings.truncationStrategy === 'oldest-first') {
+    } else if (actualStrategy === 'oldest-first') {
       // Use traditional oldest-first truncation
       this.truncateOldestMessages(session);
-    } else if (session.contextSettings.truncationStrategy === 'cluster') {
+    } else if (actualStrategy === 'cluster') {
       // Use message clustering for optimization
-      const targetTokens = Math.floor(
-        (session.contextSettings?.maxTokenLimit ||
-          getContextLimit(session.config.model)) * 0.7
-      );
-
-      // Apply cluster-based truncation
       session.messages = handleClusterTruncation(session, targetTokens);
       console.log(`[SESSION] Applied cluster-based message truncation`);
     }
 
     // Update token metrics after optimization
-    return this.updateTokenMetrics(sessionId);
+    const metrics = this.updateTokenMetrics(sessionId);
+
+    // Get token count after optimization
+    const postOptimizationTokens = metrics.totalTokens;
+
+    // Track strategy performance if adaptive strategy is enabled
+    if (session.contextSettings.adaptiveStrategyEnabled) {
+      trackStrategyPerformance(
+        sessionId,
+        actualStrategy,
+        preOptimizationTokens,
+        postOptimizationTokens
+      );
+      console.log(
+        `[SESSION] Tracked performance for ${actualStrategy}: ` +
+          `reduced from ${preOptimizationTokens} to ${postOptimizationTokens} tokens`
+      );
+    }
+
+    return metrics;
   }
 
   /**

@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Page Title - TS-MCP-Client Documentation</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css"
+    />
+    <link rel="stylesheet" href="/styles/main.css" />
+  </head>
+  <body>
+    <header>
+      <nav class="container">
+        <ul>
+          <li>
+            <a href="/">
+              <strong>TS-MCP-Client</strong
+              ><span class="version-badge">v1.2.1</span>
+            </a>
+          </li>
+          <button class="mobile-nav-toggle" aria-label="Toggle navigation">
+            ☰
+          </button>
+        </ul>
+        <ul id="main-nav">
+          <li><a href="/getting-started/">Getting Started</a></li>
+          <li><a href="/guides/">Guides</a></li>
+          <li><a href="/concepts/">Concepts</a></li>
+          <li><a href="/examples/">Examples</a></li>
+          <li><a href="/api/">API</a></li>
+          <li>
+            <a
+              href="https://github.com/yourusername/client_mcp"
+              target="_blank"
+              rel="noopener"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+      </nav>
+    </header>
+
+    <main class="container">
+      <div class="grid">
+        <div class="sidebar">
+          <!-- Sidebar navigation - automatically collapses on mobile -->
+          <nav>
+            <details open>
+              <summary>In This Section</summary>
+              <ul>
+                <li><a href="#section1">Section 1</a></li>
+                <li><a href="#section2">Section 2</a></li>
+                <li><a href="#section3">Section 3</a></li>
+              </ul>
+            </details>
+            <details>
+              <summary>Related Pages</summary>
+              <ul>
+                <li><a href="/related-page-1.html">Related Page 1</a></li>
+                <li><a href="/related-page-2.html">Related Page 2</a></li>
+              </ul>
+            </details>
+          </nav>
+        </div>
+
+        <div class="content">
+          <article>
+            <header>
+              <h1>Page Title</h1>
+              <p class="description">
+                A brief description of what this page covers and why it's
+                important.
+              </p>
+            </header>
+
+            <section id="section1">
+              <h2>Section 1</h2>
+              <p>
+                This is a paragraph of text. Keep paragraphs relatively short
+                for better readability, especially on mobile devices. Use simple
+                language and be concise.
+              </p>
+
+              <div class="code-block">
+                <pre>
+// Example code
+import { SessionManager } from '@rinardnick/client_mcp';
+
+const sessionManager = new SessionManager(config);
+const sessionId = await sessionManager.createSession();</pre
+                >
+              </div>
+
+              <div class="callout info">
+                <p>
+                  <strong>Note:</strong> This is an informational callout that
+                  provides additional context or tips.
+                </p>
+              </div>
+            </section>
+
+            <section id="section2">
+              <h2>Section 2</h2>
+              <p>
+                Another paragraph explaining a concept or providing
+                instructions. Break complex ideas into smaller, digestible
+                chunks.
+              </p>
+
+              <h3>Subsection</h3>
+              <p>
+                Further details about this topic. Use proper heading hierarchy
+                for better accessibility.
+              </p>
+
+              <div class="callout warning">
+                <p>
+                  <strong>Warning:</strong> This is a warning callout that
+                  highlights potential issues or important considerations.
+                </p>
+              </div>
+
+              <table>
+                <thead>
+                  <tr>
+                    <th>Option</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>option1</code></td>
+                    <td>string</td>
+                    <td>Description of option1</td>
+                  </tr>
+                  <tr>
+                    <td><code>option2</code></td>
+                    <td>boolean</td>
+                    <td>Description of option2</td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+
+            <section id="section3">
+              <h2>Section 3</h2>
+              <p>Final section with concluding information or next steps.</p>
+
+              <div class="card">
+                <h3>Example Use Case</h3>
+                <p>
+                  A practical example of how to use this feature in a real-world
+                  scenario.
+                </p>
+                <div class="code-block">
+                  <pre>
+// Complete example
+import { SessionManager, loadConfig } from '@rinardnick/client_mcp';
+
+const config = loadConfig('./config.json');
+const sessionManager = new SessionManager(config);
+
+async function main() {
+  const sessionId = await sessionManager.createSession();
+  const response = await sessionManager.sendMessage(
+    sessionId,
+    'Hello, how are you today?'
+  );
+  console.log(response.content);
+  await sessionManager.closeSession(sessionId);
+}
+
+main().catch(console.error);</pre
+                  >
+                </div>
+              </div>
+            </section>
+
+            <nav class="pagination">
+              <div class="prev">
+                <a href="/previous-page.html"
+                  >← Previous: Previous Page Title</a
+                >
+              </div>
+              <div class="next">
+                <a href="/next-page.html">Next: Next Page Title →</a>
+              </div>
+            </nav>
+          </article>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <div class="container">
+        <div class="grid">
+          <div>
+            <h3>TS-MCP-Client</h3>
+            <p>
+              A TypeScript implementation of the Model Context Protocol (MCP)
+              client.
+            </p>
+          </div>
+          <div>
+            <h3>Resources</h3>
+            <ul>
+              <li><a href="/getting-started/">Getting Started</a></li>
+              <li><a href="/api/">API Reference</a></li>
+              <li><a href="/examples/">Examples</a></li>
+            </ul>
+          </div>
+          <div>
+            <h3>Community</h3>
+            <ul>
+              <li>
+                <a
+                  href="https://github.com/yourusername/client_mcp"
+                  target="_blank"
+                  rel="noopener"
+                  >GitHub</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://github.com/yourusername/client_mcp/issues"
+                  target="_blank"
+                  rel="noopener"
+                  >Issues</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://npm.im/@rinardnick/client_mcp"
+                  target="_blank"
+                  rel="noopener"
+                  >npm</a
+                >
+              </li>
+            </ul>
+          </div>
+        </div>
+        <p class="copyright">
+          &copy; 2024 TS-MCP-Client Documentation. Version 1.2.1.
+        </p>
+      </div>
+    </footer>
+
+    <script src="/scripts/main.js"></script>
+  </body>
+</html>

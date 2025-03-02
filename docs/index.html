@@ -14,52 +14,106 @@
         --primary-hover: #4f46e5;
         --primary-focus: rgba(99, 102, 241, 0.125);
         --primary-inverse: #fff;
+        --font-family: system-ui, -apple-system, 'Segoe UI', 'Roboto', 'Ubuntu',
+          'Cantarell', 'Noto Sans', sans-serif, 'Apple Color Emoji',
+          'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+        --spacing: 1rem;
+        --border-radius: 0.5rem;
+        --muted-border-color: #e5e7eb;
+        --muted-color: #6b7280;
+      }
+
+      body {
+        font-family: var(--font-family);
+        line-height: 1.6;
+        color: #1e293b;
       }
 
       body > header {
         background-color: #f9fafb;
-        border-bottom: 1px solid #e5e7eb;
-        padding: 2rem 0;
+        border-bottom: 1px solid var(--muted-border-color);
+        padding: 1rem 0;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
       }
 
       body > main {
-        padding: 2rem 0;
+        padding: 1rem 0;
       }
 
       body > footer {
         background-color: #f9fafb;
-        border-top: 1px solid #e5e7eb;
+        border-top: 1px solid var(--muted-border-color);
         padding: 2rem 0;
         text-align: center;
       }
 
+      /* Mobile navigation */
+      .mobile-nav-toggle {
+        display: none;
+      }
+
+      @media (max-width: 768px) {
+        .mobile-nav-toggle {
+          display: block;
+          background: none;
+          border: none;
+          font-size: 1.5rem;
+          cursor: pointer;
+          margin-left: auto;
+        }
+
+        nav ul:last-child {
+          display: none;
+          width: 100%;
+          flex-direction: column;
+          padding: 1rem 0;
+        }
+
+        nav ul:last-child.active {
+          display: flex;
+        }
+
+        nav.container {
+          flex-wrap: wrap;
+        }
+
+        nav ul:first-child {
+          width: auto;
+        }
+      }
+
       .hero {
         text-align: center;
-        padding: 4rem 0;
+        padding: 3rem 1rem;
         background: linear-gradient(135deg, #f0f9ff 0%, #e6f7ff 100%);
         margin-bottom: 2rem;
       }
 
       .hero h1 {
-        font-size: 2.5rem;
+        font-size: clamp(2rem, 5vw, 2.5rem);
         margin-bottom: 1rem;
         color: #1e293b;
       }
 
       .hero p {
-        font-size: 1.25rem;
+        font-size: clamp(1rem, 3vw, 1.25rem);
         max-width: 800px;
         margin: 0 auto;
         color: #475569;
       }
 
       .features article {
-        border-radius: 8px;
+        border-radius: var(--border-radius);
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
           0 2px 4px -1px rgba(0, 0, 0, 0.06);
-        padding: 2rem;
+        padding: 1.5rem;
         transition: all 0.2s ease;
         height: 100%;
+        display: flex;
+        flex-direction: column;
       }
 
       .features article:hover {
@@ -75,22 +129,31 @@
 
       .features article a {
         font-weight: bold;
+        margin-top: auto;
       }
 
       .getting-started {
         background-color: #f8fafc;
-        padding: 3rem 0;
-        border-radius: 8px;
+        padding: 2rem 1rem;
+        border-radius: var(--border-radius);
         margin: 2rem 0;
       }
 
       .code-block {
         background-color: #1e293b;
         color: #e2e8f0;
-        border-radius: 8px;
+        border-radius: var(--border-radius);
         padding: 1rem;
         overflow-x: auto;
         font-family: 'Fira Code', 'Courier New', Courier, monospace;
+        font-size: 0.9rem;
+        line-height: 1.5;
+      }
+
+      .code-block pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
       }
 
       .code-comment {
@@ -107,6 +170,77 @@
         margin-left: 0.5rem;
         vertical-align: middle;
       }
+
+      /* Responsive grid adjustments */
+      .grid {
+        gap: 1.5rem;
+      }
+
+      @media (max-width: 992px) {
+        .grid > * {
+          grid-column: span 6;
+        }
+      }
+
+      @media (max-width: 576px) {
+        .grid > * {
+          grid-column: span 12;
+        }
+      }
+
+      /* Section spacing */
+      section {
+        margin-bottom: 3rem;
+      }
+
+      /* Button improvements */
+      [role='button'] {
+        display: inline-block;
+        text-align: center;
+        margin: 0.5rem 0;
+      }
+
+      /* Improved accessibility */
+      a:focus,
+      button:focus,
+      [role='button']:focus {
+        outline: 2px solid var(--primary-focus);
+        outline-offset: 2px;
+      }
+
+      /* Dark mode support */
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --primary-focus: rgba(99, 102, 241, 0.25);
+        }
+
+        body {
+          color: #e2e8f0;
+        }
+
+        body > header,
+        body > footer,
+        .getting-started {
+          background-color: #1a1a2e;
+          border-color: #2d3748;
+        }
+
+        .hero {
+          background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        }
+
+        .hero h1 {
+          color: #e2e8f0;
+        }
+
+        .hero p {
+          color: #cbd5e1;
+        }
+
+        .code-block {
+          background-color: #0f172a;
+        }
+      }
     </style>
   </head>
   <body>
@@ -117,14 +251,20 @@
             <strong>TS-MCP-Client</strong
             ><span class="version-badge">v1.2.1</span>
           </li>
+          <button class="mobile-nav-toggle" aria-label="Toggle navigation">
+            ☰
+          </button>
         </ul>
-        <ul>
+        <ul id="main-nav">
           <li><a href="#getting-started">Getting Started</a></li>
           <li><a href="#features">Features</a></li>
           <li><a href="#examples">Examples</a></li>
           <li><a href="#api">API</a></li>
           <li>
-            <a href="https://github.com/yourusername/client_mcp" target="_blank"
+            <a
+              href="https://github.com/yourusername/client_mcp"
+              target="_blank"
+              rel="noopener"
               >GitHub</a
             >
           </li>
@@ -372,5 +512,25 @@ for await (const chunk of stream) {
         <p>&copy; 2024 TS-MCP-Client Documentation. Version 1.2.1.</p>
       </div>
     </footer>
+
+    <script>
+      // Mobile navigation toggle
+      document.addEventListener('DOMContentLoaded', function () {
+        const navToggle = document.querySelector('.mobile-nav-toggle');
+        const mainNav = document.getElementById('main-nav');
+
+        navToggle.addEventListener('click', function () {
+          mainNav.classList.toggle('active');
+        });
+
+        // Close menu when clicking on links
+        const navLinks = mainNav.querySelectorAll('a');
+        navLinks.forEach(link => {
+          link.addEventListener('click', function () {
+            mainNav.classList.remove('active');
+          });
+        });
+      });
+    </script>
   </body>
 </html>

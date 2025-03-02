@@ -41,6 +41,7 @@ Based on analysis of the codebase, we'll implement a tiered documentation approa
 - **Interactive Documentation**: Similar to Stripe or Temporal
 - **Searchable Content**: Algolia-powered search
 - **Version Selector**: Access to multiple versions
+- **Responsive Design**: Mobile-first approach with adaptive layouts
 
 #### Code Examples
 
@@ -53,6 +54,112 @@ Based on analysis of the codebase, we'll implement a tiered documentation approa
 - **Architecture Diagrams**: Flow diagrams
 - **Sequence Diagrams**: Interaction patterns
 - **Video Tutorials**: Screencasts for key workflows
+
+## Responsive Documentation Design
+
+To ensure the documentation is accessible and usable across all devices, we've implemented a responsive design approach with the following features:
+
+### Mobile-First Design Principles
+
+- **Fluid Typography**: Using clamp() and relative units for responsive text sizing
+- **Adaptive Layouts**: Grid system that adjusts columns based on screen size
+- **Touch-Friendly Elements**: Larger touch targets for mobile users
+- **Simplified Navigation**: Collapsible mobile menu for smaller screens
+
+### Responsive Components
+
+- **Code Blocks**: Horizontally scrollable on mobile with proper text wrapping
+- **Navigation**: Hamburger menu on mobile that expands/collapses
+- **Cards**: Full-width cards on mobile, multi-column on larger screens
+- **Tables**: Responsive tables that adapt to screen width
+
+### Accessibility Improvements
+
+- **Color Contrast**: Meeting WCAG AA standards for text readability
+- **Focus States**: Visible focus indicators for keyboard navigation
+- **Semantic HTML**: Proper heading hierarchy and landmark regions
+- **Screen Reader Support**: ARIA attributes where appropriate
+
+### Dark Mode Support
+
+- **Automatic Detection**: Respects user's system preferences
+- **Color Variables**: Using CSS variables for theme switching
+- **Contrast Preservation**: Maintaining readability in both modes
+- **Consistent Experience**: Ensuring all components work in both modes
+
+### Performance Optimization
+
+- **Minimal CSS**: Using utility-first approach with Pico CSS as base
+- **Optimized Images**: Responsive images with appropriate sizing
+- **Reduced JavaScript**: Minimal JS for essential interactions only
+- **Fast Loading**: Prioritizing above-the-fold content
+
+### Implementation Details
+
+The responsive design is implemented using:
+
+```css
+/* Mobile navigation */
+.mobile-nav-toggle {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-nav-toggle {
+    display: block;
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    margin-left: auto;
+  }
+
+  nav ul:last-child {
+    display: none;
+    width: 100%;
+    flex-direction: column;
+    padding: 1rem 0;
+  }
+
+  nav ul:last-child.active {
+    display: flex;
+  }
+
+  nav.container {
+    flex-wrap: wrap;
+  }
+
+  nav ul:first-child {
+    width: auto;
+  }
+}
+
+/* Responsive grid adjustments */
+.grid {
+  gap: 1.5rem;
+}
+
+@media (max-width: 992px) {
+  .grid > * {
+    grid-column: span 6;
+  }
+}
+
+@media (max-width: 576px) {
+  .grid > * {
+    grid-column: span 12;
+  }
+}
+```
+
+### Testing Methodology
+
+All documentation pages should be tested on:
+
+- **Mobile Devices**: iOS and Android phones of various sizes
+- **Tablets**: iPad and Android tablets in portrait and landscape
+- **Desktops**: Various screen sizes from 1024px to 4K
+- **Browsers**: Chrome, Firefox, Safari, and Edge
 
 ## Multi-Provider Implementation ✅
 
@@ -750,6 +857,16 @@ Group documentation by common user journeys:
 - Switching providers journey
 - Optimizing performance journey
 
+### 4. Responsive Content Strategy
+
+Ensure all content is designed with responsiveness in mind:
+
+- **Progressive Disclosure**: Show essential information first
+- **Collapsible Sections**: Use accordions for detailed content
+- **Prioritized Content**: Most important information at the top
+- **Scannable Text**: Short paragraphs, bulleted lists, and clear headings
+- **Optimized Media**: Responsive images and videos
+
 ## Implementation Plan
 
 ### Immediate Actions (1-2 weeks)
@@ -767,9 +884,15 @@ Group documentation by common user journeys:
    - Create basic examples
 
 3. **Create visual assets**
+
    - Develop architecture diagrams
    - Create workflow diagrams
    - Design visual identity for documentation
+
+4. **Implement responsive design**
+   - Create mobile-friendly navigation
+   - Optimize layouts for small screens
+   - Test on various devices and browsers
 
 ### Short-term Actions (1-2 months)
 
@@ -841,6 +964,8 @@ For each documentation piece, ensure:
 7. ✅ **Accessibility**: Usable by all (including screen readers)
 8. ✅ **Consistency**: Follows style guide
 9. ✅ **Testing**: Examples have been tested and work
+10. ✅ **Responsiveness**: Works well on mobile, tablet, and desktop devices
+11. ✅ **Performance**: Loads quickly and functions smoothly on all devices
 
 ## Next Steps
 

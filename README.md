@@ -283,6 +283,30 @@ Benefits of summarization:
 - Achieves higher compression ratios for long conversations
 - Automatically tracks summarization efficiency
 
+##### Dynamic Summarization Triggering
+
+The client can automatically trigger summarization based on various conditions:
+
+```typescript
+// Configure dynamic summarization settings
+sessionManager.setContextSettings(sessionId, {
+  truncationStrategy: 'summarize',
+  dynamicSummarizationEnabled: true,
+  tokenThresholdForSummarization: 70, // Trigger at 70% context usage
+  timeBetweenSummarizations: 60, // Minutes between summarizations
+  detectTopicChanges: true, // Trigger on topic changes
+  adaptiveSummarizationAggressiveness: true, // Adjust based on context pressure
+});
+```
+
+Benefits of dynamic summarization:
+
+- Automatically maintains optimal context window usage
+- Prevents context window overflow before it becomes critical
+- Adapts summarization aggressiveness based on context pressure
+- Identifies natural breaking points like topic changes for summarization
+- Balances token efficiency with conversation quality
+
 ## Message Flow Sequence
 
 This diagram illustrates how messages flow through the system, including tool execution:

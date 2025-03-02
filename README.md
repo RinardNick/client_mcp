@@ -307,6 +307,89 @@ Benefits of dynamic summarization:
 - Identifies natural breaking points like topic changes for summarization
 - Balances token efficiency with conversation quality
 
+### Context Window Adaptation
+
+The client includes a `ContextWindowAdapter` for efficiently managing context when switching between models with different context window sizes:
+
+```typescript
+import { ContextWindowAdapter } from '@rinardnick/client_mcp';
+
+// Create an adapter instance
+const contextAdapter = new ContextWindowAdapter();
+
+// Identify which messages would exceed a model's context limit
+const analysis = contextAdapter.identifyExcessMessages(
+  messages,
+  'gpt-3.5-turbo'
+);
+console.log(`Exceeds limit: ${analysis.exceedsLimit}`);
+console.log(`Excess tokens: ${analysis.excessTokens}`);
+console.log(
+  `Messages that could be removed: ${analysis.excessMessages.length}`
+);
+
+// Adapt context from one model to another
+const adaptedMessages = contextAdapter.adaptContextToModel(
+  messages,
+  'claude-3-opus-20240229', // Source model with large context
+  'gpt-4o', // Target model with smaller context
+  {
+    strategy: 'hybrid', // 'recency', 'importance', or 'hybrid'
+    addContextSummary: true, // Add a summary message explaining adaptation
+    preserveContinuity: true, // Keep question-answer pairs together
+  }
+);
+
+// Use adaptive recovery to prevent over-pruning
+const recoveryResult = contextAdapter.adaptWithRecovery(
+  messages,
+  'claude-3-haiku-20240307', // Source model
+  'gpt-3.5-turbo', // Target model
+  {
+    minUtilization: 0.7, // Minimum context utilization target
+    targetUtilization: 0.9, // Maximum context utilization target
+  }
+);
+console.log(`Recovery applied: ${recoveryResult.recoveryApplied}`);
+console.log(`Original tokens: ${recoveryResult.originalTokenCount}`);
+console.log(`Final tokens: ${recoveryResult.finalTokenCount}`);
+
+// Use budget allocation for fine-grained control
+const budgetResult = contextAdapter.adaptWithBudgets(
+  messages,
+  'claude-3-opus-20240229', // Source model
+  'gpt-3.5-turbo', // Target model
+  {
+    systemMessageBudget: 0.1, // 10% for system messages
+    recentMessageBudget: 0.6, // 60% for recent messages
+    remainingBudget: 0.3, // 30% for important older messages
+  }
+);
+console.log(
+  `Budget utilization: ${JSON.stringify(budgetResult.budgetUtilization)}`
+);
+```
+
+Features of the Context Window Adapter:
+
+- **Smart Context Adaptation**: Intelligently adapts conversation history when switching between models with different context limits
+- **Multiple Adaptation Strategies**:
+  - **Recency**: Prioritizes most recent messages while preserving system context
+  - **Importance**: Uses importance scoring to keep the most valuable messages
+  - **Hybrid**: Combines recency and importance scoring for optimal adaptation
+- **Conversation Continuity**: Maintains question-answer pairs to preserve coherence
+- **Adaptive Recovery**: Prevents over-pruning by intelligently recovering important messages
+- **Token Budget Allocation**: Provides fine-grained control over how tokens are distributed
+- **Context Summaries**: Adds clear summaries when conversation context is adapted
+
+Benefits:
+
+- Seamless transitions between models with different context sizes
+- Optimal context utilization across provider switches
+- Preservation of conversation quality during model transitions
+- Flexible adaptation strategies for different conversation types
+- Detailed control over token allocation during transitions
+
 ## Context Optimization Features
 
 ### Adaptive Context Strategy

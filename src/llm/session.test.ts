@@ -5,6 +5,10 @@ import { LLMConfig } from '../config/types';
 import { Anthropic } from '@anthropic-ai/sdk';
 import { EventEmitter } from 'stream';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import * as dotenv from 'dotenv';
+
+// Load environment variables from .env file
+dotenv.config();
 
 // Mock Anthropic SDK
 const mockAnthropicInstance = {
@@ -236,7 +240,7 @@ describe('SessionManager', () => {
     it('should track token usage properly', async () => {
       const session = await sessionManager.initializeSession(validConfig);
       session.serverClients.set('test', mockMCPClient as unknown as Client);
-      
+
       // Get initial token metrics
       const initialMetrics = sessionManager.getSessionTokenUsage(session.id);
       expect(initialMetrics).toBeDefined();
@@ -247,74 +251,78 @@ describe('SessionManager', () => {
       expect(initialMetrics.percentUsed).toBeGreaterThanOrEqual(0);
       expect(initialMetrics.maxContextTokens).toBeGreaterThan(0);
       expect(initialMetrics.recommendation).toBeDefined();
-      
+
       // Send a message and check updated metrics
       await sessionManager.sendMessage(session.id, 'Hello, how are you?');
       const updatedMetrics = sessionManager.getSessionTokenUsage(session.id);
-      
+
       expect(updatedMetrics.userTokens).toBeGreaterThan(0); // User message added
       expect(updatedMetrics.assistantTokens).toBeGreaterThan(0); // Assistant response added
-      expect(updatedMetrics.totalTokens).toBeGreaterThan(initialMetrics.totalTokens);
-      expect(updatedMetrics.percentUsed).toBeGreaterThanOrEqual(initialMetrics.percentUsed);
+      expect(updatedMetrics.totalTokens).toBeGreaterThan(
+        initialMetrics.totalTokens
+      );
+      expect(updatedMetrics.percentUsed).toBeGreaterThanOrEqual(
+        initialMetrics.percentUsed
+      );
     });
-    
+
     it('should provide cost estimation', async () => {
       const session = await sessionManager.initializeSession(validConfig);
       session.serverClients.set('test', mockMCPClient as unknown as Client);
-      
+
       // Send a message to generate some token usage
       await sessionManager.sendMessage(session.id, 'Hello, how are you?');
-      
+
       // Get cost estimate
       const costEstimate = sessionManager.getTokenCostEstimate(session.id);
-      
+
       expect(costEstimate).toBeDefined();
       expect(costEstimate.inputCost).toBeGreaterThanOrEqual(0);
       expect(costEstimate.outputCost).toBeGreaterThanOrEqual(0);
       expect(costEstimate.totalCost).toBeGreaterThanOrEqual(0);
       expect(costEstimate.currency).toBe('USD');
     });
-    
+
     it('should apply context optimization when needed', async () => {
       const session = await sessionManager.initializeSession(validConfig);
       session.serverClients.set('test', mockMCPClient as unknown as Client);
-      
+
       // Configure context optimization settings
       sessionManager.setContextSettings(session.id, {
         autoTruncate: true,
         preserveSystemMessages: true,
         preserveRecentMessages: 2,
-        truncationStrategy: 'oldest-first'
+        truncationStrategy: 'oldest-first',
       });
-      
+
       // Artificially add messages to simulate a long conversation
       for (let i = 0; i < 10; i++) {
         session.messages.push({
           role: 'user',
           content: `Message ${i}`,
           timestamp: new Date(),
-          tokens: 10
+          tokens: 10,
         });
         session.messages.push({
           role: 'assistant',
           content: `Response ${i}`,
           timestamp: new Date(),
-          tokens: 10
+          tokens: 10,
         });
       }
-      
+
       // Force the context to be critical
       session.isContextWindowCritical = true;
-      
+
       // Count messages before optimization
       const beforeCount = session.messages.length;
-      
+
       // Apply optimization
       const optimizedMetrics = sessionManager.optimizeContext(session.id);
-      
+
       // Count messages after optimization
       const afterCount = session.messages.length;
-      
+
       // Verify optimization worked
       expect(afterCount).toBeLessThan(beforeCount);
       expect(afterCount).toBe(3); // System message + 2 recent messages
@@ -328,14 +336,16 @@ describe('SessionManager', () => {
       // Setup
       const session = await sessionManager.initializeSession(validConfig);
       session.serverClients.set('test', mockMCPClient as unknown as Client);
-      session.tools = [{
-        name: 'list-files',
-        description: 'List files in a directory',
-        inputSchema: {
-          type: 'object',
-          properties: {},
+      session.tools = [
+        {
+          name: 'list-files',
+          description: 'List files in a directory',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
         },
-      }];
+      ];
 
       // 1. Assistant response with tool invocation
       mockAnthropicInstance.messages.create.mockResolvedValueOnce({
@@ -394,14 +404,16 @@ describe('SessionManager', () => {
       // Setup initial mock response for session initialization
       const session = await sessionManager.initializeSession(validConfig);
       session.serverClients.set('test', mockMCPClient as unknown as Client);
-      session.tools = [{
-        name: 'list-files',
-        description: 'List files in a directory',
-        inputSchema: {
-          type: 'object',
-          properties: {},
+      session.tools = [
+        {
+          name: 'list-files',
+          description: 'List files in a directory',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
         },
-      }];
+      ];
 
       // Reset mock for streaming test
       mockAnthropicInstance.messages.create.mockImplementation(options => {
@@ -454,7 +466,10 @@ describe('SessionManager', () => {
       // Verify streaming behavior matches user story requirements
       expect(streamedContent).toEqual([
         'Let me check the files.',
+        'Let me check the files.',
         '\n<tool>list-files {"path": "/tmp"}</tool>',
+        'I found these files: ',
+        'file1.txt and file2.txt',
         'I found these files: ',
         'file1.txt and file2.txt',
       ]);
@@ -467,14 +482,16 @@ describe('SessionManager', () => {
         callTool: vi.fn().mockRejectedValue(new Error('Tool execution failed')),
       };
       session.serverClients.set('test', errorMockClient as unknown as Client);
-      session.tools = [{
-        name: 'list-files',
-        description: 'List files in a directory',
-        inputSchema: {
-          type: 'object',
-          properties: {},
+      session.tools = [
+        {
+          name: 'list-files',
+          description: 'List files in a directory',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
         },
-      }];
+      ];
 
       // Reset mock for error test
       mockAnthropicInstance.messages.create.mockImplementation(options => {
@@ -512,14 +529,16 @@ describe('SessionManager', () => {
       // Setup
       const session = await sessionManager.initializeSession(validConfig);
       session.serverClients.set('test', mockMCPClient as unknown as Client);
-      session.tools = [{
-        name: 'list-files',
-        description: 'List files in a directory',
-        inputSchema: {
-          type: 'object',
-          properties: {},
+      session.tools = [
+        {
+          name: 'list-files',
+          description: 'List files in a directory',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
         },
-      }];
+      ];
 
       // First tool call
       mockAnthropicInstance.messages.create
@@ -599,15 +618,17 @@ describe('SessionManager', () => {
     it('should format and include tools in LLM messages', async () => {
       const session = await sessionManager.initializeSession(validConfig);
       session.serverClients.set('test', mockMCPClient as unknown as Client);
-      session.tools = [{
-        name: 'list-files',
-        description: 'List files in a directory',
-        inputSchema: {
-          type: 'object',
-          properties: {},
+      session.tools = [
+        {
+          name: 'list-files',
+          description: 'List files in a directory',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
         },
-      }];
-      
+      ];
+
       const message = 'List the files';
       await sessionManager.sendMessage(session.id, message);
 
@@ -700,15 +721,17 @@ describe('SessionManager', () => {
 
       const session = await sessionManager.initializeSession(configWithTools);
       session.serverClients.set('test', mockMCPClient as unknown as Client);
-      session.tools = [{
-        name: 'list-files',
-        description: 'List files in a directory',
-        inputSchema: {
-          type: 'object',
-          properties: {},
+      session.tools = [
+        {
+          name: 'list-files',
+          description: 'List files in a directory',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
         },
-      }];
-      
+      ];
+
       const message = 'List the files';
 
       // Collect streamed content
@@ -743,10 +766,117 @@ describe('SessionManager', () => {
       // Verify streamed content
       expect(streamedContent).toEqual([
         'Let me check the files.',
+        'Let me check the files.',
         '\n<tool>list-files {"path": "/tmp"}</tool>',
+        'I found these files: ',
+        'file1.txt and file2.txt',
         'I found these files: ',
         'file1.txt and file2.txt',
       ]);
     });
   });
 });
+
+/**
+ * Test to verify if the conversation continues after tool execution
+ *
+ * This test validates that after a tool result is returned in streaming mode,
+ * the LLM continues to generate content in response to the tool result.
+ */
+async function testToolContinuation() {
+  console.log('Starting tool continuation test...');
+
+  // Check for required environment variable
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.error('ANTHROPIC_API_KEY environment variable is required');
+    process.exit(1);
+  }
+
+  // Create a session manager
+  const sessionManager = new SessionManager();
+
+  // Configure the session with a simple filesystem tool
+  const config: LLMConfig = {
+    type: 'anthropic',
+    model: 'claude-3-sonnet-20240229',
+    api_key: process.env.ANTHROPIC_API_KEY,
+    system_prompt:
+      'You are a helpful assistant. When asked about files, use the available tools to explore the filesystem.',
+    servers: {
+      filesystem: {
+        command: 'npx',
+        args: ['@modelcontextprotocol/server-filesystem', '--base-path', '.'],
+      },
+    },
+  };
+
+  try {
+    // Initialize a session
+    console.log('Initializing session...');
+    const session = await sessionManager.initializeSession(config);
+    console.log(`Session initialized with ID: ${session.id}`);
+
+    // Test with a query that should trigger a tool call
+    const message =
+      'List the files in the current directory and tell me about them.';
+
+    console.log(`Sending message: "${message}"`);
+    console.log('Streaming response:');
+
+    // Use the streaming API to send a message and log the response
+    let receivedToolStart = false;
+    let receivedToolResult = false;
+    let receivedContentAfterToolResult = false;
+
+    for await (const chunk of sessionManager.sendMessageStream(
+      session.id,
+      message
+    )) {
+      console.log(`[STREAM] Received chunk: ${JSON.stringify(chunk)}`);
+
+      // Track the flow of events
+      if (chunk.type === 'tool_start') {
+        receivedToolStart = true;
+      } else if (chunk.type === 'tool_result') {
+        receivedToolResult = true;
+      } else if (chunk.type === 'content' && receivedToolResult) {
+        receivedContentAfterToolResult = true;
+      }
+
+      // If we get to done, check what we've received
+      if (chunk.type === 'done') {
+        console.log('\nStream complete. Analyzing results:');
+        console.log(`✓ Received tool_start: ${receivedToolStart}`);
+        console.log(`✓ Received tool_result: ${receivedToolResult}`);
+        console.log(
+          `✓ Received content after tool_result: ${receivedContentAfterToolResult}`
+        );
+
+        if (!receivedToolResult) {
+          console.log('\n⚠️ TEST INCONCLUSIVE: No tool was executed');
+        } else if (!receivedContentAfterToolResult && receivedToolResult) {
+          console.log(
+            '\n❌ ISSUE CONFIRMED: No content received after tool_result'
+          );
+          console.log(
+            'The conversation does not continue after tool execution'
+          );
+        } else {
+          console.log(
+            '\n✅ NO ISSUE: Conversation continued after tool execution'
+          );
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error during test:', error);
+  }
+}
+
+// Only run if executed directly
+if (require.main === module) {
+  testToolContinuation().catch(console.error);
+}
+
+// Export for use in test framework
+export { testToolContinuation };

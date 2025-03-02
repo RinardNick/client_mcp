@@ -1,5 +1,6 @@
 import { LLMConfig } from '../config/types';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { LLMProviderInterface } from './provider/types';
 
 // Simple type definitions matching the SDK's structure
 export interface MCPTool {
@@ -173,6 +174,28 @@ export interface MessageRelevance {
 }
 
 /**
+ * Represents a record of a previous provider used in a session
+ */
+export interface ProviderHistory {
+  /** Provider type (e.g., 'anthropic', 'openai') */
+  provider: string;
+  /** Model ID used with this provider */
+  modelId: string;
+  /** When the switch from this provider occurred */
+  switchTime: Date;
+}
+
+/**
+ * Options for switching models
+ */
+export interface ModelSwitchOptions {
+  /** API key for the provider */
+  api_key: string;
+  /** Any provider-specific options */
+  [key: string]: any;
+}
+
+/**
  * Chat session interface
  */
 export interface ChatSession {
@@ -195,6 +218,18 @@ export interface ChatSession {
   lastSummarizedAt?: Date; // When the conversation was last summarized
   // Cost optimization tracking
   costSavings?: CostSavingsReport; // Track cost savings from optimizations
+
+  // Multi-provider support
+  /** Current provider type (e.g., 'anthropic', 'openai') */
+  provider?: string;
+  /** Current model ID being used */
+  modelId?: string;
+  /** Instance of the current provider */
+  providerInstance?: LLMProviderInterface;
+  /** History of previous providers used in this session */
+  previousProviders?: ProviderHistory[];
+  /** Provider-specific data storage */
+  providerSpecificData?: Record<string, unknown>;
 }
 
 export interface ToolCall {

@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { SessionManager } from '../session';
-import { LLMConfig } from '../../config/types';
+import { SessionManager } from '../llm/session';
+import { LLMConfig } from '../config/types';
 import { Anthropic } from '@anthropic-ai/sdk';
 import { EventEmitter } from 'stream';
 
@@ -153,6 +153,12 @@ vi.mock('@anthropic-ai/sdk', () => {
 const mockMCPClient = {
   callTool: vi.fn().mockResolvedValue({ files: ['file1.txt', 'file2.txt'] }),
   close: vi.fn(),
+  // Add required properties for Client type
+  _clientInfo: {},
+  _capabilities: {},
+  registerCapabilities: vi.fn(),
+  assertCapability: vi.fn(),
+  callMethod: vi.fn(),
 };
 
 // Mock server discovery
@@ -217,12 +223,7 @@ describe('Tool Continuation', () => {
       api_key: 'sk-ant-test123',
       model: 'claude-3-sonnet-20240229',
       system_prompt: 'You are a helpful assistant.',
-      servers: {
-        filesystem: {
-          command: 'npx',
-          args: ['@modelcontextprotocol/server-filesystem', '--base-path', '.'],
-        },
-      },
+      servers: {},
     };
     sessionManager = new SessionManager();
   });
@@ -237,6 +238,21 @@ describe('Tool Continuation', () => {
     expect(session).toBeDefined();
     expect(session.id).toBeDefined();
     console.log('✓ Session initialized successfully');
+
+    // Manually set up the session for testing
+    session.tools = [
+      {
+        name: 'list-files',
+        description: 'List files in a directory',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string' },
+          },
+        },
+      },
+    ];
+    session.serverClients.set('filesystem', mockMCPClient as any);
 
     // Create tracking variables for our test
     const events: { type: string; content?: string }[] = [];
@@ -317,6 +333,32 @@ describe('Tool Continuation', () => {
   });
 
   it('should handle legacy format tool calls with <tool> tags in streaming mode', async () => {
+    // Initialize session
+    const session = await sessionManager.initializeSession(config);
+    expect(session).toBeDefined();
+    expect(session.id).toBeDefined();
+    console.log('✓ Session initialized successfully');
+
+    // Manually set up the session for testing
+    session.tools = [
+      {
+        name: 'list-files',
+        description: 'List files in a directory',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string' },
+          },
+        },
+      },
+    ];
+    session.serverClients.set('filesystem', mockMCPClient as any);
+
+    // Create tracking variables for our test
+    const events: { type: string; content?: string }[] = [];
+    let seenToolResult = false;
+    let seenContentAfterToolResult = false;
+
     // Override the mock for this specific test to return legacy format
     mockAnthropicInstance.messages.create.mockImplementationOnce(options => {
       return {
@@ -339,15 +381,6 @@ describe('Tool Continuation', () => {
         },
       };
     });
-
-    // Initialize session
-    const session = await sessionManager.initializeSession(config);
-    expect(session).toBeDefined();
-
-    // Create tracking variables for our test
-    const events: { type: string; content?: string }[] = [];
-    let seenToolResult = false;
-    let seenContentAfterToolResult = false;
 
     // Send a message and collect all the chunks
     for await (const chunk of sessionManager.sendMessageStream(

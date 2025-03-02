@@ -17,6 +17,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ServerLauncher } from '../server/launcher';
 import { ServerDiscovery } from '../server/discovery';
 import { globalSessions } from './store';
+import { SessionStorage } from './storage';
 import {
   calculateMessageTokens,
   calculateTokenCost,
@@ -44,6 +45,9 @@ import {
   applyCostOptimization,
   getCostSavingsReport,
 } from './cost-optimization';
+import { LLMProviderFactory } from './provider/factory';
+import { LLMProviderInterface, ProviderConfig } from './provider/types';
+import { ModelSwitchOptions } from './types';
 
 // Note: Both of these interfaces are now imported from types.ts
 // So we don't need to re-declare them here
@@ -54,6 +58,7 @@ export class SessionManager {
   private serverLauncher: ServerLauncher;
   private serverDiscovery: ServerDiscovery;
   private useSharedServers: boolean;
+  private sessionStorage: SessionStorage | null = null;
 
   private formatToolsForLLM(tools: MCPTool[]): Tool[] {
     console.log('[SESSION] Formatting tools for LLM:', tools);
@@ -67,10 +72,25 @@ export class SessionManager {
     }));
   }
 
-  constructor(options?: { useSharedServers?: boolean }) {
+  constructor(
+    optionsOrStorage?: { useSharedServers?: boolean } | SessionStorage,
+    options?: { useSharedServers?: boolean }
+  ) {
     this.serverLauncher = new ServerLauncher();
     this.serverDiscovery = new ServerDiscovery();
-    this.useSharedServers = options?.useSharedServers ?? false;
+
+    // Handle different parameter patterns for backward compatibility
+    if (optionsOrStorage && 'storeSession' in optionsOrStorage) {
+      // First parameter is SessionStorage
+      this.sessionStorage = optionsOrStorage;
+      this.useSharedServers = options?.useSharedServers ?? false;
+    } else {
+      // First parameter is options object (or undefined)
+      this.sessionStorage = null;
+      this.useSharedServers =
+        (optionsOrStorage as { useSharedServers?: boolean } | undefined)
+          ?.useSharedServers ?? false;
+    }
   }
 
   async initializeSession(config: LLMConfig): Promise<ChatSession> {
@@ -123,13 +143,49 @@ export class SessionManager {
             config.token_optimization?.truncation_strategy || 'oldest-first',
         },
         isContextWindowCritical: false,
+        // Multi-provider support
+        provider: config.type,
+        modelId: config.model,
+        previousProviders: [],
+        providerSpecificData: {},
       };
 
-      // Initialize Anthropic client
-      console.log('[SESSION] Initializing Anthropic client');
-      this.anthropic = new Anthropic({
-        apiKey: config.api_key,
-      });
+      // Initialize provider instance - use factory if available, fallback to direct Anthropic
+      try {
+        if (config.type) {
+          // Get a provider instance from the factory
+          const providerConfig: ProviderConfig = {
+            apiKey: config.api_key,
+            defaultModel: config.model,
+            options: {
+              ...config,
+            },
+          };
+
+          session.providerInstance = await LLMProviderFactory.getProvider(
+            config.type,
+            providerConfig
+          );
+
+          console.log(`[SESSION] Initialized provider: ${config.type}`);
+        }
+      } catch (error) {
+        console.log(
+          '[SESSION] Provider factory not available or failed, using direct Anthropic'
+        );
+        // Initialize Anthropic client for backward compatibility
+        this.anthropic = new Anthropic({
+          apiKey: config.api_key,
+        });
+      }
+
+      // Initialize Anthropic client for backward compatibility if no provider
+      if (!session.providerInstance) {
+        console.log('[SESSION] Initializing Anthropic client directly');
+        this.anthropic = new Anthropic({
+          apiKey: config.api_key,
+        });
+      }
 
       // Store the system prompt in the session with token count
       const systemMessage = {
@@ -147,6 +203,14 @@ export class SessionManager {
         session.tokenMetrics!.totalTokens,
         config.model
       );
+
+      // Store the session in global store
+      globalSessions.set(sessionId, session);
+
+      // If session storage is provided, store there as well
+      if (this.sessionStorage) {
+        await this.sessionStorage.storeSession(session);
+      }
 
       // Launch MCP servers if configured
       if (config.servers) {
@@ -254,7 +318,6 @@ export class SessionManager {
         }
       }
 
-      globalSessions.set(sessionId, session);
       console.log(`[SESSION] Initialized new chat session: ${sessionId}`);
       return session;
     } catch (error) {
@@ -518,163 +581,205 @@ export class SessionManager {
       console.log(`[SESSION] Sending message for session ${sessionId}`);
       const session = this.getSession(sessionId);
 
-      // Initialize Anthropic client if not already initialized
-      if (!this.anthropic) {
-        console.log('[SESSION] Initializing Anthropic client');
-        this.anthropic = new Anthropic({
-          apiKey: session.config.api_key,
-        });
-      }
+      // Use provider instance if available
+      if (session.providerInstance) {
+        console.log('[SESSION] Using provider instance for message');
 
-      // Add user message to history with token count
-      const userMessage = {
-        role: 'user' as const,
-        content: message,
-        timestamp: new Date(),
-        tokens: countTokens(message, session.config.model),
-      };
-      session.messages.push(userMessage);
-      console.log(
-        `[SESSION] Added user message to history (${userMessage.tokens} tokens)`
-      );
+        // Add user message to history with token count
+        const userMessage = {
+          role: 'user' as const,
+          content: message,
+          timestamp: new Date(),
+          tokens: session.providerInstance.countTokens(
+            message,
+            session.modelId
+          ),
+        };
+        session.messages.push(userMessage);
 
-      // Update token metrics for the new message
-      this.updateTokenMetrics(sessionId);
+        // Update token metrics
+        this.updateTokenMetrics(sessionId);
 
-      // Check if dynamic summarization should be triggered
-      if (session.contextSettings?.dynamicSummarizationEnabled) {
-        console.log('[SESSION] Checking for dynamic summarization triggers');
-        await checkAndTriggerSummarization(sessionId, this);
-      }
-      // Standard context window check (existing code)
-      else if (
-        session.isContextWindowCritical &&
-        session.contextSettings?.autoTruncate
-      ) {
-        console.log(
-          '[SESSION] Context window approaching limits, optimizing context'
-        );
-        this.optimizeContext(sessionId);
-      }
-
-      // Format tools for Anthropic if available
-      const tools =
-        session.tools.length > 0
-          ? this.formatToolsForLLM(session.tools)
-          : undefined;
-      console.log('[SESSION] Formatted tools for Anthropic:', tools);
-
-      // Update token metrics
-      this.updateTokenMetrics(sessionId);
-
-      // Prepare API request parameters
-      const apiParams: any = {
-        model: session.config.model,
-        max_tokens: 1024,
-        system: session.config.system_prompt,
-        messages: session.messages
-          .filter(msg => msg.role !== 'system')
-          .map(msg => ({
-            role: msg.role === 'assistant' ? 'assistant' : 'user',
-            content: msg.content,
-          })),
-        tools: tools,
-      };
-
-      // Add thinking parameter for Claude 3.7+ models
-      if (supportsThinking(session.config.model)) {
-        console.log(
-          '[SESSION] Model supports thinking, adding thinking parameter'
-        );
-
-        // If thinking is explicitly disabled in config, don't add it
-        if (session.config.thinking?.enabled !== false) {
-          // Get budget from config or use default
-          const budgetTokens =
-            session.config.thinking?.budget_tokens ||
-            getDefaultThinkingBudget(session.config.model);
-
-          apiParams.thinking = {
-            type: 'enabled',
-            budget_tokens: budgetTokens,
-          };
-
-          console.log(
-            `[SESSION] Added thinking with budget: ${budgetTokens} tokens`
-          );
+        // Check if context optimization is needed
+        if (
+          session.isContextWindowCritical &&
+          session.contextSettings?.autoTruncate
+        ) {
+          console.log('[SESSION] Context window critical, optimizing');
+          this.optimizeContext(sessionId);
         }
-      }
 
-      // Send message to Anthropic
-      console.log('[SESSION] Sending message to Anthropic');
-      const response = await this.anthropic.messages.create(apiParams);
+        // Prepare options for the provider
+        const options: any = {
+          model: session.modelId,
+          maxTokens: 1024,
+          tools: session.tools.length > 0 ? session.tools : undefined,
+          providerOptions: {
+            messages: session.messages.filter(msg => msg.role !== 'system'),
+          },
+        };
 
-      // Process response - check for tool calls first
-      console.log('[SESSION] Checking for tool calls in response');
-      console.log(
-        '[SESSION] Response content:',
-        JSON.stringify(response.content)
-      );
+        // Add system message if available
+        const systemMessage = session.messages.find(
+          msg => msg.role === 'system'
+        );
+        if (systemMessage) {
+          options.systemMessage = systemMessage.content;
+        }
 
-      let content = '';
-      let hasToolCall = false;
-      let toolCall = undefined;
+        // Send message to provider
+        const response = await session.providerInstance.sendMessage(
+          message,
+          options
+        );
 
-      // Look for tool calls in the structured response
-      const toolCalls = response.content.filter(
-        item => item.type === 'tool_use'
-      );
+        // Create assistant message with token count
+        const assistantMessage: ChatMessage = {
+          role: 'assistant',
+          content: response.content,
+          hasToolCall: !!response.toolCall,
+          toolCall: response.toolCall,
+          timestamp: new Date(),
+          tokens: session.providerInstance.countTokens(
+            response.content,
+            session.modelId
+          ),
+        };
 
-      if (toolCalls && toolCalls.length > 0) {
-        // We have a tool call
-        console.log('[SESSION] Tool call detected in structured response');
-        const toolUse = toolCalls[0]; // Use the first tool call for now
+        // Add message to history
+        session.messages.push(assistantMessage);
 
-        if (toolUse.id && toolUse.name && toolUse.input) {
-          hasToolCall = true;
-          try {
-            toolCall = {
-              name: toolUse.name,
-              parameters: toolUse.input,
+        // Update session activity and token metrics
+        this.updateSessionActivity(sessionId);
+        this.updateTokenMetrics(sessionId);
+
+        return assistantMessage;
+      } else {
+        console.log('[SESSION] Using Anthropic client');
+        // Fallback to existing implementation
+        // Initialize Anthropic client if not already initialized
+        if (!this.anthropic) {
+          console.log('[SESSION] Initializing Anthropic client');
+          this.anthropic = new Anthropic({
+            apiKey: session.config.api_key,
+          });
+        }
+
+        // Continue with existing implementation...
+        // ... (existing sendMessage code) ...
+
+        // Add user message to history with token count
+        const userMessage = {
+          role: 'user' as const,
+          content: message,
+          timestamp: new Date(),
+          tokens: countTokens(message, session.config.model),
+        };
+        session.messages.push(userMessage);
+        console.log(
+          `[SESSION] Added user message to history (${userMessage.tokens} tokens)`
+        );
+
+        // Update token metrics for the new message
+        this.updateTokenMetrics(sessionId);
+
+        // Check if dynamic summarization should be triggered
+        if (session.contextSettings?.dynamicSummarizationEnabled) {
+          console.log('[SESSION] Checking for dynamic summarization triggers');
+          await checkAndTriggerSummarization(sessionId, this);
+        }
+        // Standard context window check (existing code)
+        else if (
+          session.isContextWindowCritical &&
+          session.contextSettings?.autoTruncate
+        ) {
+          console.log(
+            '[SESSION] Context window approaching limits, optimizing context'
+          );
+          this.optimizeContext(sessionId);
+        }
+
+        // Format tools for Anthropic if available
+        const tools =
+          session.tools.length > 0
+            ? this.formatToolsForLLM(session.tools)
+            : undefined;
+        console.log('[SESSION] Formatted tools for Anthropic:', tools);
+
+        // Update token metrics
+        this.updateTokenMetrics(sessionId);
+
+        // Prepare API request parameters
+        const apiParams: any = {
+          model: session.config.model,
+          max_tokens: 1024,
+          system: session.config.system_prompt,
+          messages: session.messages
+            .filter(msg => msg.role !== 'system')
+            .map(msg => ({
+              role: msg.role === 'assistant' ? 'assistant' : 'user',
+              content: msg.content,
+            })),
+          tools: tools,
+        };
+
+        // Add thinking parameter for Claude 3.7+ models
+        if (supportsThinking(session.config.model)) {
+          console.log(
+            '[SESSION] Model supports thinking, adding thinking parameter'
+          );
+
+          // If thinking is explicitly disabled in config, don't add it
+          if (session.config.thinking?.enabled !== false) {
+            // Get budget from config or use default
+            const budgetTokens =
+              session.config.thinking?.budget_tokens ||
+              getDefaultThinkingBudget(session.config.model);
+
+            apiParams.thinking = {
+              type: 'enabled',
+              budget_tokens: budgetTokens,
             };
-            console.log('[SESSION] Parsed structured tool call:', toolCall);
-          } catch (error) {
-            console.error('[SESSION] Failed to parse tool parameters:', error);
-            throw new LLMError('Invalid tool parameters format');
+
+            console.log(
+              `[SESSION] Added thinking with budget: ${budgetTokens} tokens`
+            );
           }
         }
-      }
 
-      // Extract text content
-      const textContent = response.content.filter(item => item.type === 'text');
-      if (textContent && textContent.length > 0) {
-        content = textContent[0].text;
-      } else if (toolCalls.length > 0) {
-        // If we only have tool calls, create a placeholder content
-        content = `I need to use the ${toolCalls[0].name} tool.`;
-      } else {
-        console.error('[SESSION] Empty response from LLM');
-        throw new LLMError('Empty response from LLM');
-      }
+        // Send message to Anthropic
+        console.log('[SESSION] Sending message to Anthropic');
+        const response = await this.anthropic.messages.create(apiParams);
 
-      // For backward compatibility, also check for <tool> tag format
-      if (!hasToolCall) {
-        const toolMatch = content.match(/<tool>(.*?)<\/tool>/s);
+        // Process response - check for tool calls first
+        console.log('[SESSION] Checking for tool calls in response');
+        console.log(
+          '[SESSION] Response content:',
+          JSON.stringify(response.content)
+        );
 
-        if (toolMatch && toolMatch[1]) {
-          console.log('[SESSION] Tool call detected in legacy tag format');
-          hasToolCall = true;
-          const toolContent = toolMatch[1].trim();
-          const spaceIndex = toolContent.indexOf(' ');
-          if (spaceIndex > -1) {
-            const name = toolContent.slice(0, spaceIndex);
-            const paramsStr = toolContent.slice(spaceIndex + 1);
+        let content = '';
+        let hasToolCall = false;
+        let toolCall = undefined;
+
+        // Look for tool calls in the structured response
+        const toolCalls = response.content.filter(
+          item => item.type === 'tool_use'
+        );
+
+        if (toolCalls && toolCalls.length > 0) {
+          // We have a tool call
+          console.log('[SESSION] Tool call detected in structured response');
+          const toolUse = toolCalls[0]; // Use the first tool call for now
+
+          if (toolUse.id && toolUse.name && toolUse.input) {
+            hasToolCall = true;
             try {
               toolCall = {
-                name,
-                parameters: JSON.parse(paramsStr),
+                name: toolUse.name,
+                parameters: toolUse.input,
               };
-              console.log('[SESSION] Parsed legacy tool call:', toolCall);
+              console.log('[SESSION] Parsed structured tool call:', toolCall);
             } catch (error) {
               console.error(
                 '[SESSION] Failed to parse tool parameters:',
@@ -684,59 +789,102 @@ export class SessionManager {
             }
           }
         }
-      }
 
-      // Create assistant message with token count
-      const assistantMessage: ChatMessage = {
-        role: 'assistant',
-        content,
-        hasToolCall,
-        toolCall,
-        timestamp: new Date(),
-        tokens: countTokens(content, session.config.model),
-      };
-
-      // Execute tool call if available
-      console.log(
-        `[SESSION] Tool execution check: hasToolCall=${hasToolCall}, toolCall=${JSON.stringify(
-          toolCall
-        )}, serverClients.size=${session.serverClients.size}`
-      );
-      console.log(
-        `[SESSION] All registered tools: ${JSON.stringify(
-          session.tools.map(t => t.name)
-        )}`
-      );
-
-      if (hasToolCall && toolCall && session.serverClients.size > 0) {
-        // Add assistant message to history before processing tool call
-        session.messages.push(assistantMessage);
-
-        // Check if we've already reached the limit before incrementing
-        if (session.toolCallCount >= session.maxToolCalls) {
-          // If we've reached the limit, return the final response
-          const limitMessage: ChatMessage = {
-            role: 'assistant',
-            content:
-              'I have reached the tool call limit. Here is what I found in the first two directories...',
-            hasToolCall: false,
-          };
-          session.messages.push(limitMessage);
-          return limitMessage;
+        // Extract text content
+        const textContent = response.content.filter(
+          item => item.type === 'text'
+        );
+        if (textContent && textContent.length > 0) {
+          content = textContent[0].text;
+        } else if (toolCalls.length > 0) {
+          // If we only have tool calls, create a placeholder content
+          content = `I need to use the ${toolCalls[0].name} tool.`;
+        } else {
+          console.error('[SESSION] Empty response from LLM');
+          throw new LLMError('Empty response from LLM');
         }
 
-        // Increment the tool call counter before executing the tool
-        session.toolCallCount++;
-        return await this.processToolCall(sessionId, assistantMessage);
+        // For backward compatibility, also check for <tool> tag format
+        if (!hasToolCall) {
+          const toolMatch = content.match(/<tool>(.*?)<\/tool>/s);
+
+          if (toolMatch && toolMatch[1]) {
+            console.log('[SESSION] Tool call detected in legacy tag format');
+            hasToolCall = true;
+            const toolContent = toolMatch[1].trim();
+            const spaceIndex = toolContent.indexOf(' ');
+            if (spaceIndex > -1) {
+              const name = toolContent.slice(0, spaceIndex);
+              const paramsStr = toolContent.slice(spaceIndex + 1);
+              try {
+                toolCall = {
+                  name,
+                  parameters: JSON.parse(paramsStr),
+                };
+                console.log('[SESSION] Parsed legacy tool call:', toolCall);
+              } catch (error) {
+                console.error(
+                  '[SESSION] Failed to parse tool parameters:',
+                  error
+                );
+                throw new LLMError('Invalid tool parameters format');
+              }
+            }
+          }
+        }
+
+        // Create assistant message with token count
+        const assistantMessage: ChatMessage = {
+          role: 'assistant',
+          content,
+          hasToolCall,
+          toolCall,
+          timestamp: new Date(),
+          tokens: countTokens(content, session.config.model),
+        };
+
+        // Execute tool call if available
+        console.log(
+          `[SESSION] Tool execution check: hasToolCall=${hasToolCall}, toolCall=${JSON.stringify(
+            toolCall
+          )}, serverClients.size=${session.serverClients.size}`
+        );
+        console.log(
+          `[SESSION] All registered tools: ${JSON.stringify(
+            session.tools.map(t => t.name)
+          )}`
+        );
+
+        if (hasToolCall && toolCall && session.serverClients.size > 0) {
+          // Add assistant message to history before processing tool call
+          session.messages.push(assistantMessage);
+
+          // Check if we've already reached the limit before incrementing
+          if (session.toolCallCount >= session.maxToolCalls) {
+            // If we've reached the limit, return the final response
+            const limitMessage: ChatMessage = {
+              role: 'assistant',
+              content:
+                'I have reached the tool call limit. Here is what I found in the first two directories...',
+              hasToolCall: false,
+            };
+            session.messages.push(limitMessage);
+            return limitMessage;
+          }
+
+          // Increment the tool call counter before executing the tool
+          session.toolCallCount++;
+          return await this.processToolCall(sessionId, assistantMessage);
+        }
+
+        // If no tool call or not processed, add message to history and return
+        session.messages.push(assistantMessage);
+
+        // Update session activity
+        this.updateSessionActivity(sessionId);
+
+        return assistantMessage;
       }
-
-      // If no tool call or not processed, add message to history and return
-      session.messages.push(assistantMessage);
-
-      // Update session activity
-      this.updateSessionActivity(sessionId);
-
-      return assistantMessage;
     } catch (error) {
       console.error('Failed to send message:', error);
       throw new LLMError(
@@ -1620,11 +1768,30 @@ export class SessionManager {
   }
 
   getSession(sessionId: string): ChatSession {
+    // Fallback to global sessions
     const session = globalSessions.get(sessionId);
     if (!session) {
       throw new LLMError(`Session not found: ${sessionId}`);
     }
     return session;
+  }
+
+  /**
+   * Get a session from storage (async version)
+   * @param sessionId Session ID to retrieve
+   */
+  async getSessionFromStorage(sessionId: string): Promise<ChatSession> {
+    // If session storage is provided, use it
+    if (this.sessionStorage) {
+      const session = await this.sessionStorage.getSession(sessionId);
+      if (!session) {
+        throw new LLMError(`Session not found in storage: ${sessionId}`);
+      }
+      return session;
+    }
+
+    // Fallback to global sessions
+    return this.getSession(sessionId);
   }
 
   updateSessionActivity(sessionId: string): void {
@@ -2210,5 +2377,126 @@ export class SessionManager {
    */
   getSummarizationStatus(sessionId: string): SummarizationMetrics {
     return getSummarizationMetrics(sessionId, this);
+  }
+
+  /**
+   * Switch the model and/or provider for an existing session
+   * @param sessionId The ID of the session to modify
+   * @param providerType The provider type to switch to
+   * @param modelId The model ID to switch to
+   * @param options Additional options for the switch
+   * @returns The updated session
+   */
+  async switchSessionModel(
+    sessionId: string,
+    providerType: string,
+    modelId: string,
+    options: ModelSwitchOptions
+  ): Promise<ChatSession> {
+    console.log(
+      `[SESSION] Switching session ${sessionId} to provider: ${providerType}, model: ${modelId}`
+    );
+
+    const session = this.getSession(sessionId);
+
+    try {
+      // Record current provider in history
+      if (session.provider && session.modelId) {
+        if (!session.previousProviders) {
+          session.previousProviders = [];
+        }
+
+        session.previousProviders.push({
+          provider: session.provider,
+          modelId: session.modelId,
+          switchTime: new Date(),
+        });
+      }
+
+      // Initialize the new provider
+      const providerConfig: ProviderConfig = {
+        apiKey: options.api_key,
+        defaultModel: modelId,
+        options: {
+          ...options,
+        },
+      };
+
+      // Get a provider instance from the factory
+      const providerInstance = await LLMProviderFactory.getProvider(
+        providerType,
+        providerConfig
+      );
+
+      // Update session with new provider
+      session.provider = providerType;
+      session.modelId = modelId;
+      session.providerInstance = providerInstance;
+
+      // Update token metrics for the new model
+      session.tokenMetrics!.maxContextTokens = getContextLimit(modelId);
+      this.updateTokenMetrics(sessionId);
+
+      // Check if context optimization is needed
+      if (session.tokenMetrics!.percentUsed > 70) {
+        console.log(
+          `[SESSION] Token usage high (${
+            session.tokenMetrics!.percentUsed
+          }%), optimizing context`
+        );
+        this.optimizeContext(sessionId);
+      }
+
+      // Update the session in storage if available
+      if (this.sessionStorage) {
+        await this.sessionStorage.storeSession(session);
+      }
+
+      return session;
+    } catch (error) {
+      console.error('[SESSION] Failed to switch provider:', error);
+      throw new LLMError(
+        `Failed to switch provider: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
+    }
+  }
+
+  /**
+   * Store provider-specific data
+   * @param sessionId The session ID
+   * @param key The data key
+   * @param value The data value
+   */
+  async storeProviderData(
+    sessionId: string,
+    key: string,
+    value: unknown
+  ): Promise<void> {
+    const session = this.getSession(sessionId);
+    if (!session.providerSpecificData) {
+      session.providerSpecificData = {};
+    }
+    session.providerSpecificData[key] = value;
+
+    // Update the session in storage if available
+    if (this.sessionStorage) {
+      await this.sessionStorage.storeSession(session);
+    }
+  }
+
+  /**
+   * Get provider-specific data
+   * @param sessionId The session ID
+   * @param key The data key
+   * @returns The data value, or undefined if not found
+   */
+  getProviderData(sessionId: string, key: string): unknown {
+    const session = this.getSession(sessionId);
+    if (!session.providerSpecificData) {
+      return undefined;
+    }
+    return session.providerSpecificData[key];
   }
 }

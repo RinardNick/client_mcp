@@ -811,6 +811,74 @@ This project is licensed under the ISC License.
 
 The client supports multiple LLM providers and allows switching between them during an active session.
 
+### Multi-Provider Configuration
+
+You can configure multiple providers in a single configuration file, with fallback providers for resilience:
+
+```typescript
+// Multi-provider configuration example
+const multiProviderConfig = {
+  // Define multiple providers in a single configuration
+  providers: {
+    anthropic: {
+      api_key: process.env.ANTHROPIC_API_KEY,
+      default_model: 'claude-3-sonnet-20240229',
+      system_prompt: 'You are a helpful assistant with access to tools.',
+      thinking: { enabled: true },
+    },
+    openai: {
+      api_key: process.env.OPENAI_API_KEY,
+      default_model: 'gpt-4o',
+      system_prompt: 'You are a helpful assistant.',
+    },
+    grok: {
+      api_key: process.env.GROK_API_KEY,
+      default_model: 'grok-1',
+      system_prompt: 'You are a helpful assistant.',
+    },
+  },
+
+  // Set the default provider to use
+  default_provider: 'anthropic',
+
+  // Define fallback chains for resilience
+  provider_fallbacks: {
+    anthropic: ['openai', 'grok'], // If Anthropic fails, try OpenAI, then Grok
+    openai: ['anthropic'], // If OpenAI fails, try Anthropic
+    grok: ['anthropic', 'openai'], // If Grok fails, try Anthropic, then OpenAI
+  },
+
+  // Common settings
+  max_tool_calls: 5,
+  servers: {
+    filesystem: {
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/workspace'],
+      env: {},
+    },
+  },
+};
+
+// Initialize with the multi-provider configuration
+const session = await sessionManager.initializeSession(multiProviderConfig);
+```
+
+When using fallback providers, the system will automatically try the next provider in the chain if the current one fails:
+
+```typescript
+// The fallback providers will be used automatically when a provider fails
+try {
+  // This will try Anthropic first (default provider)
+  const result = await sessionManager.sendMessage(
+    sessionId,
+    'Tell me about machine learning'
+  );
+} catch (error) {
+  // If all providers in the fallback chain fail, this will be thrown
+  console.error('All providers failed:', error);
+}
+```
+
 ### Supported Providers
 
 ```typescript
@@ -911,6 +979,56 @@ const updatedSession = await sessionManager.switchSessionModel(
 );
 
 console.log(`Switched to ${updatedSession.provider}/${updatedSession.modelId}`);
+```
+
+### Using Multiple Models Within One Provider
+
+You can easily work with multiple models from the same provider, selecting the appropriate model for each task:
+
+```typescript
+// Get all available models for a provider to select from
+const anthropicModels = sessionManager.getProviderModels('anthropic');
+console.log(
+  'Available Anthropic models:',
+  anthropicModels.map(m => m.id)
+);
+
+// Choose a model based on task requirements
+const longContextTask = 'Please analyze this entire document...';
+const quickTask = "What's the capital of France?";
+
+// Use the appropriate model for each task
+await sessionManager.switchSessionModel(
+  sessionId,
+  'anthropic',
+  'claude-3-opus-20240229', // High capability model for complex tasks
+  { api_key: process.env.ANTHROPIC_API_KEY }
+);
+await sessionManager.sendMessage(sessionId, longContextTask);
+
+// Switch to a faster/cheaper model for simple tasks
+await sessionManager.switchSessionModel(
+  sessionId,
+  'anthropic',
+  'claude-3-haiku-20240307', // Faster model for simple tasks
+  { api_key: process.env.ANTHROPIC_API_KEY }
+);
+await sessionManager.sendMessage(sessionId, quickTask);
+
+// Estimate cost differences between models for comparison
+const opusCost = sessionManager.estimateCosts(
+  sessionId,
+  'anthropic',
+  'claude-3-opus-20240229'
+);
+const haikuCost = sessionManager.estimateCosts(
+  sessionId,
+  'anthropic',
+  'claude-3-haiku-20240307'
+);
+console.log(
+  `Cost savings: $${(opusCost.totalCost - haikuCost.totalCost).toFixed(4)}`
+);
 ```
 
 ### Provider Compatibility Checker
@@ -1038,267 +1156,53 @@ const anthropicTool = toolAdapter.adaptToolForProvider(
 );
 const openaiTool = toolAdapter.adaptToolForProvider(weatherTool, 'openai');
 const grokTool = toolAdapter.adaptToolForProvider(weatherTool, 'grok');
-
-// Convert arrays of tools
-const tools = [weatherTool, anotherTool];
-const anthropicTools = toolAdapter.adaptToolsForProvider(tools, 'anthropic');
 ```
 
-### Parsing Tool Calls from Different Providers
+### Using Tools Across Providers
 
-You can also parse tool calls from different providers into a canonical format:
-
-```typescript
-// Parse an Anthropic tool call to canonical format
-const anthropicResponse = {
-  content: '',
-  rawResponse: {
-    content: [
-      {
-        type: 'tool_use',
-        tool_use: {
-          name: 'get_weather',
-          input: {
-            location: 'San Francisco, CA',
-            unit: 'celsius',
-          },
-        },
-      },
-    ],
-  },
-};
-
-const toolCall = toolAdapter.parseToolCallFromProvider(
-  anthropicResponse,
-  'anthropic'
-);
-
-console.log(toolCall);
-// {
-//   name: 'get_weather',
-//   parameters: {
-//     location: 'San Francisco, CA',
-//     unit: 'celsius'
-//   }
-// }
-```
-
-### Custom Provider Adapters
-
-You can register adapters for custom providers:
+Tools work seamlessly across provider switches, with automatic format conversion:
 
 ```typescript
-// Register a custom adapter
-toolAdapter.registerToolAdapter('custom_provider', {
-  adaptTool: (tool: MCPTool) => ({
-    customName: tool.name,
-    customDescription: tool.description,
-    schema: tool.inputSchema,
-  }),
-  parseToolCall: (response: any): ToolCall | null => {
-    if (response.rawResponse?.custom_tool_call) {
-      return {
-        name: response.rawResponse.custom_tool_call.customName,
-        parameters: response.rawResponse.custom_tool_call.args,
-      };
-    }
-    return null;
-  },
-});
-
-// Use your custom adapter
-const customTool = toolAdapter.adaptToolForProvider(
-  weatherTool,
-  'custom_provider'
-);
-```
-
-## Tool Capability Management
-
-The client includes a capability manager that handles differences in tool support between providers. This ensures tools work correctly when switching between providers with different capabilities:
-
-```typescript
-import { ToolCapabilityManager, MCPTool } from '@rinardnick/client_mcp';
-
-// Create a capability manager
-const capabilityManager = new ToolCapabilityManager();
-
-// Define a complex tool
-const complexTool: MCPTool = {
-  name: 'complex_query',
-  description: 'Execute a complex database query',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      query: { type: 'string' },
-      filters: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            field: { type: 'string' },
-            operator: {
-              type: 'string',
-              enum: ['equals', 'contains', 'gt', 'lt'],
-            },
-            value: { type: 'string' },
-          },
-        },
+// Define tools in a standard format
+const tools = [
+  {
+    name: 'get_weather',
+    description: 'Get the current weather',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        location: { type: 'string' },
+        unit: { type: 'string', enum: ['celsius', 'fahrenheit'] },
       },
-      options: {
-        type: 'object',
-        properties: {
-          sort: { type: 'string' },
-          limit: { type: 'number' },
-        },
-      },
+      required: ['location'],
     },
   },
-};
+];
 
-// Check tool compatibility with a provider
-const compatibility = capabilityManager.checkToolSupport(complexTool, 'grok');
-
-if (!compatibility.supported) {
-  console.log('Tool not fully supported by Grok:');
-  for (const issue of compatibility.unsupportedFeatures) {
-    console.log(`- ${issue.severity}: ${issue.message} at ${issue.location}`);
-  }
-}
-
-// Simplify the tool to work with a provider that has limitations
-const simplifiedTool = capabilityManager.simplifyToolForProvider(
-  complexTool,
-  'limited_provider'
-);
-
-// Get warnings about simplifications made
-const warnings = capabilityManager.getSimplificationWarnings(
-  complexTool,
-  'limited_provider'
-);
-for (const warning of warnings) {
-  console.log(`${warning.severity}: ${warning.message}`);
-}
-```
-
-### Creating Multi-Provider Compatible Tools
-
-You can create tools that work with multiple providers by finding common capabilities:
-
-```typescript
-// Create a tool compatible with multiple providers
-const multiProviderTool = capabilityManager.createMultiProviderCompatibleTool(
-  complexTool,
-  ['anthropic', 'openai', 'grok']
-);
-
-// This tool will work with all specified providers
-const anthropicSupport = capabilityManager.checkToolSupport(
-  multiProviderTool,
-  'anthropic'
-);
-const openaiSupport = capabilityManager.checkToolSupport(
-  multiProviderTool,
-  'openai'
-);
-const grokSupport = capabilityManager.checkToolSupport(
-  multiProviderTool,
-  'grok'
-);
-
-console.log(`Compatible with Anthropic: ${anthropicSupport.supported}`);
-console.log(`Compatible with OpenAI: ${openaiSupport.supported}`);
-console.log(`Compatible with Grok: ${grokSupport.supported}`);
-```
-
-### Planning Tool Migration Between Providers
-
-When switching providers, you can create a migration plan for your tools:
-
-```typescript
-// Create a migration plan for tools when switching providers
-const migrationPlan = capabilityManager.createToolMigrationPlan(
-  [tool1, tool2, tool3],
-  'anthropic',
-  'openai'
-);
-
-console.log(
-  `${migrationPlan.compatibleTools.length} tools are compatible without changes`
-);
-console.log(
-  `${migrationPlan.adaptedTools.length} tools were adapted to work with the target provider`
-);
-console.log(
-  `${migrationPlan.incompatibleTools.length} tools cannot be used with the target provider`
-);
-
-// Apply recommendations
-for (const recommendation of migrationPlan.recommendations) {
-  console.log(`- ${recommendation}`);
-}
-```
-
-### Custom Capability Definitions
-
-You can register custom capabilities for providers or create custom capability checks:
-
-```typescript
-// Register provider-specific capabilities
-capabilityManager.registerProviderCapabilities('custom_provider', {
-  maxNestingDepth: 2,
-  supportedTypes: ['string', 'number', 'boolean'],
-  supportsEnums: false,
-  supportsArrays: true,
-  maxProperties: 10,
+// Initialize a session with Anthropic
+const session = await sessionManager.initializeSession({
+  type: 'anthropic',
+  api_key: process.env.ANTHROPIC_API_KEY,
+  model: 'claude-3-sonnet-20240229',
+  system_prompt: 'You are a helpful assistant with access to tools.',
 });
 
-// Register a custom capability check
-capabilityManager.registerCapabilityHandler(
-  'special_feature',
-  (tool, provider) => {
-    // Your custom logic to check compatibility
-    if (tool.name.includes('special') && provider === 'limited_provider') {
-      return {
-        supported: false,
-        unsupportedFeatures: [
-          {
-            feature: 'special_feature',
-            location: 'tool.name',
-            severity: 'warning',
-            message: 'Special tools not supported by this provider',
-          },
-        ],
-      };
-    }
-    return { supported: true, unsupportedFeatures: [] };
-  }
-);
-```
+// Send a message that will use the tool
+await sessionManager.sendMessage(session.id, "What's the weather in New York?");
 
-##### Conversation Summarization
-
-The summarization strategy uses the LLM to create concise summaries of message groups:
-
-```typescript
-// Configure summarization settings
-sessionManager.setContextSettings(sessionId, {
-  truncationStrategy: 'summarize',
-  summarizationBatchSize: 5, // Number of messages to summarize together
-  minCompressionRatio: 2.0, // Minimum compression ratio to keep summaries
+// Switch to OpenAI - tools are automatically converted
+await sessionManager.switchSessionModel(session.id, 'openai', 'gpt-4o', {
+  api_key: process.env.OPENAI_API_KEY,
 });
 
-// Get summarization metrics
-const summaryMetrics = sessionManager.getSummarizationStatus(sessionId);
-console.log(`Total summaries: ${summaryMetrics.totalSummaries}`);
-console.log(`Tokens saved: ${summaryMetrics.totalTokensSaved}`);
-console.log(`Average compression: ${summaryMetrics.averageCompressionRatio}x`);
+// Tool calls still work after switching providers
+const response = await sessionManager.sendMessage(
+  session.id,
+  "What's the weather in San Francisco?"
+);
+
+// The system handles capability differences between providers
+// If a provider doesn't support certain tool features, they're gracefully degraded
 ```
 
-Benefits of summarization:
-
-- Preserves key information while reducing token usage
-- Maintains conversation coherence better than simple truncation
-- Achieves higher compression ratios for long conversations
-- Automatically tracks summarization efficiency
+### Handling Capability Differences

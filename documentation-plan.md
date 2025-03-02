@@ -250,6 +250,195 @@ The documentation should explain all token optimization settings:
 | `truncation_strategy`      | string  | Strategy for truncation: 'oldest-first', 'selective', or 'summarize' |
 | `summarization_threshold`  | number  | Percentage of context window that triggers summarization             |
 
+## Usage Examples
+
+The documentation should include comprehensive usage examples covering common scenarios from basic to advanced.
+
+### Basic Usage Example
+
+```typescript
+import { SessionManager, loadConfig } from '@rinardnick/client_mcp';
+
+// Load configuration
+const config = loadConfig('./config.json');
+
+// Initialize the session manager
+const sessionManager = new SessionManager(config);
+
+// Create a new chat session
+const sessionId = await sessionManager.createSession();
+
+// Send a message and wait for response
+const response = await sessionManager.sendMessage(
+  sessionId,
+  'Hello, how are you today?'
+);
+console.log(response.content);
+
+// Close the session when done
+await sessionManager.closeSession(sessionId);
+```
+
+### Streaming Example
+
+```typescript
+import { SessionManager, loadConfig } from '@rinardnick/client_mcp';
+
+// Load configuration
+const config = loadConfig('./config.json');
+
+// Initialize the session manager
+const sessionManager = new SessionManager(config);
+
+// Create a new chat session
+const sessionId = await sessionManager.createSession();
+
+// Send a message with streaming
+const messageStream = await sessionManager.sendMessageStream(
+  sessionId,
+  'Write a short story about a robot'
+);
+
+// Process the stream
+for await (const chunk of messageStream) {
+  switch (chunk.type) {
+    case 'content':
+      process.stdout.write(chunk.content || '');
+      break;
+    case 'thinking':
+      console.log('\n[Thinking]: ' + chunk.thinking);
+      break;
+    case 'tool_call':
+      console.log('\n[Tool Call]: ' + JSON.stringify(chunk.toolCall));
+      break;
+    case 'tool_result':
+      console.log('\n[Tool Result]: ' + JSON.stringify(chunk.result));
+      break;
+    case 'error':
+      console.error('\n[Error]: ' + chunk.error);
+      break;
+    case 'done':
+      console.log('\n[Done]');
+      break;
+  }
+}
+
+// Close the session when done
+await sessionManager.closeSession(sessionId);
+```
+
+### Tool Integration Example
+
+```typescript
+import { SessionManager, loadConfig } from '@rinardnick/client_mcp';
+
+// Define a calculator tool
+const calculatorTool = {
+  name: 'calculator',
+  description: 'Performs basic arithmetic calculations',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      expression: {
+        type: 'string',
+        description: 'The arithmetic expression to evaluate',
+      },
+    },
+    required: ['expression'],
+  },
+};
+
+// Load configuration
+const config = loadConfig('./config.json');
+
+// Initialize the session manager
+const sessionManager = new SessionManager(config);
+
+// Create a new chat session with tools
+const sessionId = await sessionManager.createSession({
+  tools: [calculatorTool],
+});
+
+// Set up tool handler
+sessionManager.setToolHandler(sessionId, 'calculator', async params => {
+  const { expression } = params;
+  try {
+    // Safely evaluate the expression
+    const result = eval(`
+      (function() {
+        const sanitized = "${expression}".replace(/[^0-9+\\-*/()\\s]/g, '');
+        return eval(sanitized);
+      })()
+    `);
+    return { result: String(result) };
+  } catch (error) {
+    return { error: 'Invalid expression' };
+  }
+});
+
+// Send a message that might trigger tool use
+const messageStream = await sessionManager.sendMessageStream(
+  sessionId,
+  'What is 123 * 456?'
+);
+
+// Process the stream with tool calls and results
+for await (const chunk of messageStream) {
+  // Handle stream chunks as in previous example...
+}
+
+// Close the session when done
+await sessionManager.closeSession(sessionId);
+```
+
+### Multi-Provider Example
+
+```typescript
+import { SessionManager, loadConfig } from '@rinardnick/client_mcp';
+
+// Load configuration with multiple providers
+const config = loadConfig('./multi-provider-config.json');
+
+// Initialize the session manager
+const sessionManager = new SessionManager(config);
+
+// Get available providers
+const providers = sessionManager.getAvailableProviders();
+console.log('Available providers:', providers);
+
+// Create a session with specific provider
+const sessionId = await sessionManager.createSession({
+  provider: 'anthropic',
+  model: 'claude-3-opus-20240229',
+});
+
+// Send a message with initial provider
+await sessionManager.sendMessage(sessionId, 'Tell me about the solar system.');
+
+// Check compatibility before switching
+const compatibility = await sessionManager.checkProviderCompatibility(
+  sessionId,
+  'openai',
+  'gpt-4o'
+);
+
+if (compatibility.compatible) {
+  // Switch to another provider mid-conversation
+  await sessionManager.switchSessionModel(sessionId, 'openai', 'gpt-4o', {
+    preserveContext: true,
+  });
+
+  // Continue conversation with new provider
+  await sessionManager.sendMessage(
+    sessionId,
+    'Now tell me more about Mars specifically.'
+  );
+}
+
+// Close the session when done
+await sessionManager.closeSession(sessionId);
+```
+
 ## Detailed Documentation Plan
 
 ### Phase 1: Core Documentation (Immediate)

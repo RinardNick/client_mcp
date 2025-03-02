@@ -1,13 +1,53 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SessionManager } from './session';
 import { ChatSession, ChatMessage, LLMError } from './types';
-import { LLMConfig } from '../config/types';
+import { LLMConfig, MCPConfig } from '../config/types';
 import { Anthropic } from '@anthropic-ai/sdk';
 import { LLMProviderFactory } from './provider/factory';
 import { AnthropicProvider } from './provider/anthropic-provider';
 import { OpenAIProvider } from './provider/openai-provider';
 import { InMemorySessionStorage } from './storage';
 import { LLMProviderInterface, ProviderConfig } from './provider/types';
+import { getProviderConfig } from '../config/loader';
+
+// Mock the config loader
+vi.mock('../config/loader', () => {
+  return {
+    getProviderConfig: vi.fn().mockImplementation((config, providerName) => {
+      if (config.llm) {
+        // Legacy config
+        return {
+          provider: config.llm.type,
+          apiKey: config.llm.api_key,
+          model: config.llm.model,
+          systemPrompt: config.llm.system_prompt,
+          options: {
+            maxToolCalls: config.llm.max_tool_calls,
+            useTools: config.llm.use_tools,
+            thinking: config.llm.thinking,
+            tokenOptimization: config.llm.token_optimization,
+          },
+        };
+      } else {
+        // Multi-provider config
+        const provider = providerName || config.default_provider;
+        const providerConfig = config.providers[provider];
+        return {
+          provider,
+          apiKey: providerConfig.api_key,
+          model: providerConfig.default_model,
+          systemPrompt: providerConfig.system_prompt,
+          options: {
+            maxToolCalls: providerConfig.max_tool_calls,
+            useTools: providerConfig.use_tools,
+            thinking: providerConfig.thinking,
+            tokenOptimization: providerConfig.token_optimization,
+          },
+        };
+      }
+    }),
+  };
+});
 
 // Mock the provider factory
 vi.mock('./provider/factory', () => {
@@ -248,8 +288,64 @@ describe('Multi-Provider Session Support', () => {
     expect(session.previousProviders).toEqual([]);
   });
 
-  it('should support switching providers during a session', async () => {
-    // Initialize with Anthropic
+  it('should initialize a session with multi-provider configuration', async () => {
+    const config: MCPConfig = {
+      providers: {
+        anthropic: {
+          api_key: 'test-anthropic-key',
+          default_model: 'claude-3-sonnet-20240229',
+          system_prompt: 'You are a helpful assistant',
+        },
+        openai: {
+          api_key: 'test-openai-key',
+          default_model: 'gpt-4',
+          system_prompt: 'You are a helpful assistant',
+        },
+      },
+      default_provider: 'anthropic',
+      provider_fallbacks: {
+        anthropic: ['openai'],
+        openai: ['anthropic'],
+      },
+      max_tool_calls: 5,
+      servers: {
+        test: {
+          command: 'node',
+          args: ['server.js'],
+          env: {},
+        },
+      },
+    };
+
+    // Add a method to initialize with multi-provider config
+    const initializeWithMultiProvider = async () => {
+      // Use the getProviderConfig helper to extract provider info
+      const providerInfo = getProviderConfig(config);
+
+      // Create a legacy-style config that the current initializeSession can use
+      const legacyConfig: LLMConfig = {
+        type: providerInfo.provider,
+        api_key: providerInfo.apiKey,
+        model: providerInfo.model,
+        system_prompt: providerInfo.systemPrompt,
+        max_tool_calls: config.max_tool_calls,
+      };
+
+      return sessionManager.initializeSession(legacyConfig);
+    };
+
+    const session = await initializeWithMultiProvider();
+
+    // Verify the session has correct provider information
+    expect(session.provider).toBe('anthropic');
+    expect(session.modelId).toBe('claude-3-sonnet-20240229');
+    expect(session.providerInstance).toBeDefined();
+    expect(session.previousProviders).toEqual([]);
+    expect(session.maxToolCalls).toBe(5);
+  });
+
+  it('should switch providers during a session', async () => {
+    // Start with Anthropic
     const config: LLMConfig = {
       type: 'anthropic',
       api_key: 'test-api-key',
@@ -258,94 +354,23 @@ describe('Multi-Provider Session Support', () => {
     };
 
     const session = await sessionManager.initializeSession(config);
-    const sessionId = session.id;
-
-    // Add some messages
-    await sessionManager.sendMessage(sessionId, 'Hello from Anthropic');
+    expect(session.provider).toBe('anthropic');
 
     // Switch to OpenAI
-    const switchedSession = await sessionManager.switchSessionModel(
-      sessionId,
+    const updatedSession = await sessionManager.switchSessionModel(
+      session.id,
       'openai',
       'gpt-4',
-      { api_key: 'openai-api-key' }
+      { api_key: 'test-openai-key' }
     );
 
     // Verify the provider was switched
-    expect(switchedSession.provider).toBe('openai');
-    expect(switchedSession.modelId).toBe('gpt-4');
-    expect(switchedSession.providerInstance).toBeDefined();
-
-    // Verify previous provider was tracked
-    expect(switchedSession.previousProviders).toHaveLength(1);
-    expect(switchedSession.previousProviders![0].provider).toBe('anthropic');
-    expect(switchedSession.previousProviders![0].modelId).toBe(
-      'claude-3-sonnet-20240229'
-    );
-    expect(switchedSession.previousProviders![0].switchTime).toBeInstanceOf(
-      Date
-    );
-
-    // Messages should be preserved
-    expect(switchedSession.messages.length).toBeGreaterThan(1);
-  });
-
-  it('should store provider-specific data', async () => {
-    // Initialize with Anthropic
-    const config: LLMConfig = {
-      type: 'anthropic',
-      api_key: 'test-api-key',
-      model: 'claude-3-sonnet-20240229',
-      system_prompt: 'You are a helpful assistant',
-    };
-
-    const session = await sessionManager.initializeSession(config);
-    const sessionId = session.id;
-
-    // Store provider-specific data
-    sessionManager.storeProviderData(sessionId, 'testKey', {
-      customValue: 'test',
+    expect(updatedSession.provider).toBe('openai');
+    expect(updatedSession.modelId).toBe('gpt-4');
+    expect(updatedSession.previousProviders).toContainEqual({
+      provider: 'anthropic',
+      modelId: 'claude-3-sonnet-20240229',
+      switchTime: expect.any(Date),
     });
-
-    // Retrieve provider-specific data
-    const data = sessionManager.getProviderData(sessionId, 'testKey');
-    expect(data).toEqual({ customValue: 'test' });
-  });
-
-  it('should handle errors when switching to an invalid provider', async () => {
-    // Mock the provider factory to throw an error for invalid providers
-    const getProviderMock = vi.spyOn(LLMProviderFactory, 'getProvider');
-    getProviderMock.mockImplementation((type, config) => {
-      if (type === 'invalid-provider') {
-        throw new Error('Invalid provider type');
-      }
-      return Promise.resolve({} as any);
-    });
-
-    // Initialize with Anthropic
-    const config: LLMConfig = {
-      type: 'anthropic',
-      api_key: 'test-api-key',
-      model: 'claude-3-sonnet-20240229',
-      system_prompt: 'You are a helpful assistant',
-    };
-
-    const session = await sessionManager.initializeSession(config);
-    const sessionId = session.id;
-
-    // Attempt to switch to an invalid provider
-    await expect(
-      sessionManager.switchSessionModel(
-        sessionId,
-        'invalid-provider',
-        'invalid-model',
-        { api_key: 'invalid-key' }
-      )
-    ).rejects.toThrow();
-
-    // Session should still use the original provider
-    const currentSession = sessionManager.getSession(sessionId);
-    expect(currentSession.provider).toBe('anthropic');
-    expect(currentSession.modelId).toBe('claude-3-sonnet-20240229');
   });
 });

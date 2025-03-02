@@ -89,6 +89,43 @@ export interface SummarizationMetrics {
 }
 
 /**
+ * Types of truncation strategies for context optimization
+ */
+export type TruncationStrategy =
+  | 'oldest-first'
+  | 'selective'
+  | 'relevance'
+  | 'summarize'
+  | 'cluster';
+
+/**
+ * Cost optimization level options
+ */
+export type CostOptimizationLevel = 'minimal' | 'balanced' | 'aggressive';
+
+/**
+ * Cost savings report interface
+ */
+export interface CostSavingsReport {
+  /** Number of tokens saved */
+  tokensSaved: number;
+  /** Estimated cost saved based on token reduction */
+  costSaved: number;
+  /** Currency of the cost estimation */
+  currency: string;
+  /** Percentage of tokens saved relative to original */
+  percentSaved: number;
+  /** Timestamp when savings were calculated */
+  timestamp: Date;
+  /** Previous optimization operations */
+  history: Array<{
+    timestamp: Date;
+    tokensSaved: number;
+    costSaved: number;
+  }>;
+}
+
+/**
  * Context optimization settings
  */
 export interface ContextSettings {
@@ -112,6 +149,12 @@ export interface ContextSettings {
   /* Adaptive strategy settings */
   adaptiveStrategyEnabled?: boolean; // Enable dynamic strategy selection
   strategySelectionThreshold?: number; // Minimum performance data needed before relying on past performance
+
+  /* Cost optimization settings */
+  costOptimizationMode?: boolean; // Enable cost optimization mode
+  costOptimizationLevel?: CostOptimizationLevel; // Level of cost optimization aggressiveness
+  preserveQuestionsInCostMode?: boolean; // Whether to preserve questions even in cost optimization mode
+  maxPreservedTokensInCostMode?: number; // Maximum number of tokens to preserve in cost mode
 }
 
 /**
@@ -150,6 +193,8 @@ export interface ChatSession {
   isContextWindowCritical?: boolean;
   // Summarization tracking
   lastSummarizedAt?: Date; // When the conversation was last summarized
+  // Cost optimization tracking
+  costSavings?: CostSavingsReport; // Track cost savings from optimizations
 }
 
 export interface ToolCall {
@@ -209,12 +254,3 @@ export interface MessageCluster {
   /** Total tokens used by all messages in this cluster */
   totalTokens?: number;
 }
-
-/**
- * Available strategies for truncating conversation context
- */
-export type TruncationStrategy =
-  | 'oldest-first'
-  | 'relevance'
-  | 'summarize'
-  | 'cluster';

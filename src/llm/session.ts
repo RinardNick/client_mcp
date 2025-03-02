@@ -8,8 +8,9 @@ import {
   ContextSettings,
   TokenAlert,
   SummarizationMetrics,
+  CostSavingsReport,
 } from './types';
-import { Anthropic } from '@anthropic-ai/sdk';
+import { Anthropic, Message } from '@anthropic-ai/sdk';
 import type { Tool } from '@anthropic-ai/sdk/resources/messages/messages';
 import { MCPTool, MCPResource } from './types';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -40,7 +41,12 @@ import { handleClusterTruncation } from './message-clustering';
 import {
   applyAdaptiveStrategy,
   trackStrategyPerformance,
+  recommendOptimizationStrategy,
 } from './adaptive-context-strategy';
+import {
+  applyCostOptimization,
+  getCostSavingsReport,
+} from './cost-optimization';
 
 // Note: Both of these interfaces are now imported from types.ts
 // So we don't need to re-declare them here
@@ -1713,6 +1719,14 @@ export class SessionManager {
   }
 
   /**
+   * Get cost savings report for a session
+   */
+  getCostSavingsReport(sessionId: string): CostSavingsReport {
+    const session = this.getSession(sessionId);
+    return getCostSavingsReport(session);
+  }
+
+  /**
    * Set context optimization settings
    */
   setContextSettings(
@@ -1743,60 +1757,61 @@ export class SessionManager {
   }
 
   /**
-   * Optimizes the context window for a session, implementing context management strategies
-   * @param sessionId - ID of the session to optimize
-   * @returns The optimized session with updated messages and metrics
+   * Apply context optimization based on the configured strategy
    */
   async optimizeContext(sessionId: string): Promise<TokenMetrics> {
     const session = this.getSession(sessionId);
 
-    if (!session.contextSettings?.autoTruncate) {
+    // If auto-truncate is disabled and no critical context, do nothing
+    if (
+      !session.contextSettings?.autoTruncate &&
+      !session.isContextWindowCritical
+    ) {
       console.log(
-        `[SESSION] Context optimization skipped (autoTruncate disabled)`
+        `[SESSION] Skipping context optimization for ${sessionId} (auto-truncate disabled)`
       );
-      return this.getSessionTokenUsage(sessionId);
+      return this.updateTokenMetrics(sessionId);
     }
 
-    if (!session.isContextWindowCritical) {
+    // Get the current token count
+    const currentMetrics = this.updateTokenMetrics(sessionId);
+    const preOptimizationTokens = currentMetrics.totalTokens;
+
+    // Calculate the target token count (70% of context window)
+    const contextLimit = getContextLimit(session.config.model);
+    const targetTokens = Math.floor(contextLimit * 0.7);
+
+    // If we're already under target, no optimization needed
+    if (preOptimizationTokens <= targetTokens) {
       console.log(
-        `[SESSION] Context optimization not needed (usage not critical)`
+        `[SESSION] No context optimization needed for ${sessionId} (${preOptimizationTokens} tokens)`
       );
-      return this.getSessionTokenUsage(sessionId);
+      return currentMetrics;
     }
 
-    console.log(`[SESSION] Applying context optimization for ${sessionId}`);
-
-    // Calculate target token count (70% of context window)
-    const targetTokens = Math.floor(
-      (session.contextSettings?.maxTokenLimit ||
-        getContextLimit(session.config.model)) * 0.7
+    console.log(
+      `[SESSION] Optimizing context for ${sessionId}: ${preOptimizationTokens} tokens -> target ${targetTokens} tokens`
     );
 
-    // Get token count before optimization
-    const preOptimizationTokens = session.messages.reduce(
-      (sum, msg) => sum + (msg.tokens || 0),
-      0
-    );
+    // Determine which optimization strategy to use
+    let actualStrategy =
+      session.contextSettings?.truncationStrategy || 'oldest-first';
 
-    // Check if adaptive strategy is enabled
-    let actualStrategy = session.contextSettings.truncationStrategy;
-
-    if (session.contextSettings.adaptiveStrategyEnabled) {
-      // Apply adaptive strategy selection
-      actualStrategy = applyAdaptiveStrategy(session, targetTokens);
-      console.log(
-        `[SESSION] Using ${actualStrategy} (selected by adaptive strategy)`
-      );
-    } else {
-      console.log(
-        `[SESSION] Using ${actualStrategy} (from static configuration)`
-      );
+    // If adaptive strategy is enabled, get recommended strategy
+    if (session.contextSettings?.adaptiveStrategyEnabled) {
+      actualStrategy = recommendOptimizationStrategy(session);
+      console.log(`[SESSION] Using adaptive strategy: ${actualStrategy}`);
     }
 
-    // Select optimization strategy based on selected strategy
-    if (actualStrategy === 'summarize') {
+    // First check if cost optimization mode is enabled
+    if (session.contextSettings?.costOptimizationMode) {
+      // Apply cost-optimized truncation
+      applyCostOptimization(session, targetTokens);
+    }
+    // Otherwise use regular optimization strategies
+    else if (actualStrategy === 'summarize') {
       // Use conversation summarization strategy
-      await this.truncateBySummarization(session);
+      await this.truncateBySummarization(sessionId, targetTokens);
     } else if (
       actualStrategy === 'selective' ||
       actualStrategy === 'relevance'
@@ -1813,13 +1828,13 @@ export class SessionManager {
     }
 
     // Update token metrics after optimization
-    const metrics = this.updateTokenMetrics(sessionId);
+    const updatedMetrics = this.updateTokenMetrics(sessionId);
 
     // Get token count after optimization
-    const postOptimizationTokens = metrics.totalTokens;
+    const postOptimizationTokens = updatedMetrics.totalTokens;
 
     // Track strategy performance if adaptive strategy is enabled
-    if (session.contextSettings.adaptiveStrategyEnabled) {
+    if (session.contextSettings?.adaptiveStrategyEnabled) {
       trackStrategyPerformance(
         sessionId,
         actualStrategy,
@@ -1832,7 +1847,7 @@ export class SessionManager {
       );
     }
 
-    return metrics;
+    return updatedMetrics;
   }
 
   /**

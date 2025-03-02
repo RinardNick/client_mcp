@@ -311,74 +311,57 @@ Benefits of dynamic summarization:
 
 ### Adaptive Context Strategy
 
-The library includes an adaptive context optimization strategy that automatically selects the most effective optimization method based on conversation characteristics and past performance.
+The client includes an adaptive context optimization strategy that automatically selects the most effective optimization method based on conversation characteristics and past performance:
 
 ```typescript
-// Configure adaptive context strategy
-sessionManager.setContextSettings({
+// Enable adaptive context strategy
+sessionManager.setContextSettings(sessionId, {
   adaptiveStrategyEnabled: true, // Enable adaptive strategy selection
   strategySelectionThreshold: 3, // Minimum performance data points before relying on past performance
 });
 ```
 
-Benefits of adaptive context strategy:
+Benefits:
 
-- **Intelligent Strategy Selection**: Automatically chooses the best strategy based on conversation type
-- **Performance Learning**: Tracks and learns from the effectiveness of different strategies
-- **Conversation Analysis**: Identifies conversation characteristics like question density and topic changes
-- **Optimal Token Usage**: Maximizes context quality while minimizing token usage
+- Intelligent strategy selection based on conversation type
+- Performance learning that improves over time
+- Conversation analysis to identify optimal approaches
+- Optimal token usage while maintaining conversation quality
 
-The adaptive strategy selects from the following optimization methods:
+Available optimization methods:
 
-- **Oldest-First**: Simple and efficient for basic Q&A conversations
-- **Relevance-Based**: Preserves important messages for technical discussions
-- **Summarization**: Condenses creative content while preserving key information
-- **Clustering**: Maintains topic coherence for conversations with multiple subjects
+- Oldest-First: Simple removal of oldest messages first
+- Relevance-Based: Removes less relevant messages based on scoring
+- Summarization: Replaces message groups with concise summaries
+- Clustering: Groups related messages and optimizes by cluster
 
-### Message Clustering
+### Cost Optimization Mode
 
-The library includes a message clustering feature that intelligently groups related messages by topic, allowing for more coherent context optimization. When the context window gets too full, the system can remove entire topic clusters that are less important, rather than arbitrary messages.
-
-```typescript
-// Configure message clustering
-sessionManager.setContextSettings({
-  truncationStrategy: 'cluster', // Use cluster-based truncation
-  autoTruncate: true, // Automatically truncate when context is full
-  preserveSystemMessages: true, // Always keep system messages
-  preserveRecentMessages: 2, // Always keep the 2 most recent messages
-});
-```
-
-Benefits of message clustering:
-
-- **Topic Coherence**: Maintains entire conversation topics together
-- **Intelligent Pruning**: Removes less important topics first based on recency, questions, and size
-- **Improved Context Quality**: Preserves the most relevant information for the LLM
-- **Better User Experience**: Prevents the LLM from losing track of important topics
-
-### Dynamic Summarization Triggering
-
-The library supports dynamic summarization triggering based on various conditions:
+The client includes a cost optimization mode that aggressively reduces token usage for cost-sensitive applications:
 
 ```typescript
-// Configure dynamic summarization
-sessionManager.setContextSettings({
-  truncationStrategy: 'summarize',
-  dynamicSummarizationEnabled: true,
-  tokenThresholdForSummarization: 70, // Trigger at 70% context usage
-  timeBetweenSummarizations: 60, // Minutes between summarizations
-  detectTopicChanges: true, // Trigger on topic changes
-  adaptiveSummarizationAggressiveness: true, // Adjust based on context pressure
+// Enable cost optimization mode
+sessionManager.setContextSettings(sessionId, {
+  costOptimizationMode: true, // Enable cost optimization
+  costOptimizationLevel: 'balanced', // 'minimal', 'balanced', or 'aggressive'
+  preserveQuestionsInCostMode: true, // Preserve questions even in cost optimization
+  maxPreservedTokensInCostMode: 2000, // Maximum tokens to preserve in cost mode
 });
+
+// Get cost savings report
+const savingsReport = sessionManager.getCostSavingsReport(sessionId);
+console.log(`Tokens saved: ${savingsReport.tokensSaved}`);
+console.log(`Cost saved: $${savingsReport.costSaved.toFixed(4)}`);
+console.log(`Percent saved: ${savingsReport.percentSaved.toFixed(1)}%`);
 ```
 
-Benefits of dynamic summarization:
+Benefits:
 
-- Maintains optimal context window usage
-- Prevents context overflow by proactively summarizing
-- Adapts summarization aggressiveness based on context pressure
-- Identifies topic changes as natural points for summarization
-- Balances token efficiency with conversation quality
+- Significant token reduction for cost-sensitive applications
+- Multiple optimization levels to balance quality and cost
+- Automatic preservation of critical conversation elements
+- Detailed cost savings tracking and reporting
+- Optimized for different conversation types and use cases
 
 ## Message Flow Sequence
 

@@ -45,6 +45,7 @@ npm install @rinardnick/client_mcp
 ### Features
 
 - **Structured Tool Call Support** - Works with Claude's latest API format for tool calls
+- **Continuous Tool Conversation** - Maintains conversation flow after tool execution
 - **Enhanced Token Management** - Accurate token counting, cost estimation, and context optimization
 - **Claude 3.7 Thinking Support** - Enable Claude's thinking process for better reasoning
 - **Tool Call Limits** - Control tool usage in conversations
@@ -65,21 +66,21 @@ const config = {
   api_key: process.env.ANTHROPIC_API_KEY,
   model: 'claude-3-5-sonnet-20241022',
   system_prompt: 'You are a helpful assistant with access to tools.',
-  
+
   // Optional configurations
-  max_tool_calls: 5,  // Limit tool calls per conversation
+  max_tool_calls: 5, // Limit tool calls per conversation
   thinking: {
-    enabled: true,  // For Claude 3.7+ models
-    budget_tokens: 6000  // Optional thinking token budget
+    enabled: true, // For Claude 3.7+ models
+    budget_tokens: 6000, // Optional thinking token budget
   },
   token_optimization: {
-    enabled: true,  // Enable token optimization
-    auto_truncate: true,  // Automatically truncate when approaching limits
-    preserve_system_messages: true,  // Always keep system messages
-    preserve_recent_messages: 5,  // Keep 5 most recent messages
-    truncation_strategy: 'oldest-first'  // How to truncate conversation
+    enabled: true, // Enable token optimization
+    auto_truncate: true, // Automatically truncate when approaching limits
+    preserve_system_messages: true, // Always keep system messages
+    preserve_recent_messages: 5, // Keep 5 most recent messages
+    truncation_strategy: 'oldest-first', // How to truncate conversation
   },
-  
+
   // Server configurations
   servers: {
     filesystem: {
@@ -112,27 +113,27 @@ for await (const chunk of stream) {
       // Claude's thinking process (3.7+ models)
       console.log('Thinking:', chunk.content);
       break;
-      
+
     case 'tool_start':
       // Tool is about to execute
       console.log('Starting tool:', chunk.content);
       break;
-      
+
     case 'tool_result':
       // Results from tool execution
       console.log('Tool result:', chunk.content);
       break;
-      
+
     case 'content':
-      // Regular message content
+      // Regular message content - continues after tool execution
       console.log('Content:', chunk.content);
       break;
-      
+
     case 'error':
       // Error during processing
       console.error('Error:', chunk.error);
       break;
-      
+
     case 'done':
       // Stream is complete
       console.log('Stream complete');
@@ -140,6 +141,17 @@ for await (const chunk of stream) {
   }
 }
 ```
+
+### Tool Continuation Support
+
+The client automatically handles continued conversation after tool execution:
+
+1. When a tool is called, the event stream emits a `tool_start` event
+2. After tool execution, a `tool_result` event is emitted with the results
+3. The conversation automatically continues with the LLM incorporating the tool results
+4. Additional `content` events are emitted with the LLM's response to the tool results
+
+This ensures seamless conversation flow even when tools are used during the interaction.
 
 ### Token Management and Context Optimization
 
@@ -165,17 +177,19 @@ console.log(`Cost breakdown:
 
 // Configure context optimization settings
 sessionManager.setContextSettings(sessionId, {
-  autoTruncate: true,                 // Enable automatic truncation
-  preserveSystemMessages: true,       // Always keep system messages
-  preserveRecentMessages: 6,          // Keep the 6 most recent messages
-  truncationStrategy: 'oldest-first'  // Remove oldest messages first
+  autoTruncate: true, // Enable automatic truncation
+  preserveSystemMessages: true, // Always keep system messages
+  preserveRecentMessages: 6, // Keep the 6 most recent messages
+  truncationStrategy: 'oldest-first', // Remove oldest messages first
 });
 
 // Manually trigger context optimization when needed
 if (tokenMetrics.percentUsed > 80) {
-  console.log("Context window filling up, optimizing...");
+  console.log('Context window filling up, optimizing...');
   const optimizedMetrics = sessionManager.optimizeContext(sessionId);
-  console.log(`Reduced to ${optimizedMetrics.totalTokens} tokens (${optimizedMetrics.percentUsed}%)`);
+  console.log(
+    `Reduced to ${optimizedMetrics.totalTokens} tokens (${optimizedMetrics.percentUsed}%)`
+  );
 }
 ```
 
@@ -254,7 +268,7 @@ const Chat = () => {
     const initSession = async () => {
       // Load config (your implementation)
       const config = await loadConfig();
-      
+
       // Create a new session
       const session = await sessionManager.initializeSession(config);
       setSessionId(session.id);
@@ -263,7 +277,7 @@ const Chat = () => {
     initSession();
   }, []);
 
-  const sendMessage = async (e) => {
+  const sendMessage = async e => {
     e.preventDefault();
     if (!input.trim() || !sessionId) return;
 
@@ -283,10 +297,16 @@ const Chat = () => {
             setStreamData(prev => ({ ...prev, thinking: chunk.content }));
             break;
           case 'tool_start':
-            setStreamData(prev => ({ ...prev, toolInfo: `Running: ${chunk.content}` }));
+            setStreamData(prev => ({
+              ...prev,
+              toolInfo: `Running: ${chunk.content}`,
+            }));
             break;
           case 'tool_result':
-            setStreamData(prev => ({ ...prev, toolInfo: `Result: ${chunk.content}` }));
+            setStreamData(prev => ({
+              ...prev,
+              toolInfo: `Result: ${chunk.content}`,
+            }));
             break;
           case 'content':
             setStreamData(prev => ({ ...prev, content: chunk.content }));
@@ -322,10 +342,18 @@ const Chat = () => {
         ))}
 
         {/* Show streaming content */}
-        {streamData.thinking && <div className="thinking">Thinking: {streamData.thinking}</div>}
-        {streamData.toolInfo && <div className="tool-info">{streamData.toolInfo}</div>}
-        {streamData.content && loading && <div className="streaming">{streamData.content}</div>}
-        {streamData.error && <div className="error">Error: {streamData.error}</div>}
+        {streamData.thinking && (
+          <div className="thinking">Thinking: {streamData.thinking}</div>
+        )}
+        {streamData.toolInfo && (
+          <div className="tool-info">{streamData.toolInfo}</div>
+        )}
+        {streamData.content && loading && (
+          <div className="streaming">{streamData.content}</div>
+        )}
+        {streamData.error && (
+          <div className="error">Error: {streamData.error}</div>
+        )}
       </div>
 
       <form onSubmit={sendMessage}>
@@ -335,7 +363,9 @@ const Chat = () => {
           placeholder="Send a message..."
           disabled={loading || !sessionId}
         />
-        <button type="submit" disabled={loading || !sessionId}>Send</button>
+        <button type="submit" disabled={loading || !sessionId}>
+          Send
+        </button>
       </form>
     </div>
   );
@@ -365,10 +395,12 @@ try {
 ## Security Best Practices
 
 1. **API Key Management**
+
    - Never expose API keys in client-side code
    - Use environment variables or secure vaults
 
 2. **Server Security**
+
    - Restrict server capabilities (e.g., filesystem access)
    - Use allowlists for commands
    - Implement resource limits
@@ -381,30 +413,30 @@ try {
 
 ```typescript
 interface LLMConfig {
-  type: string;              // LLM type (e.g., 'claude')
-  api_key: string;           // API key for the LLM
-  model: string;             // Model identifier
-  system_prompt: string;     // System prompt for the session
-  
-  max_tool_calls?: number;   // Maximum tool calls per session
-  
+  type: string; // LLM type (e.g., 'claude')
+  api_key: string; // API key for the LLM
+  model: string; // Model identifier
+  system_prompt: string; // System prompt for the session
+
+  max_tool_calls?: number; // Maximum tool calls per session
+
   thinking?: {
-    enabled?: boolean;       // Enable thinking for Claude 3.7+
-    budget_tokens?: number;  // Token budget for thinking
+    enabled?: boolean; // Enable thinking for Claude 3.7+
+    budget_tokens?: number; // Token budget for thinking
   };
-  
+
   token_optimization?: {
-    enabled?: boolean;                // Enable token optimization
-    auto_truncate?: boolean;          // Automatically truncate when context window fills
+    enabled?: boolean; // Enable token optimization
+    auto_truncate?: boolean; // Automatically truncate when context window fills
     preserve_system_messages?: boolean; // Keep system messages during truncation
-    preserve_recent_messages?: number;  // Number of recent messages to preserve
+    preserve_recent_messages?: number; // Number of recent messages to preserve
     truncation_strategy?: 'oldest-first' | 'selective' | 'summarize'; // How to truncate
   };
-  
+
   servers?: {
     [key: string]: {
-      command: string;       // Server launch command
-      args: string[];        // Command arguments
+      command: string; // Server launch command
+      args: string[]; // Command arguments
       env?: Record<string, string>; // Environment variables
     };
   };

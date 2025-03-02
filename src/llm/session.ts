@@ -713,6 +713,8 @@ export class SessionManager {
         messages: session.messages.map(msg => ({
           role: msg.role === 'system' ? 'user' : msg.role,
           content: msg.content,
+          // Include tool_result flag for tool result messages
+          ...(msg.isToolResult && { tool_result: true }),
         })),
         tools: tools,
         stream: true,
@@ -754,8 +756,12 @@ export class SessionManager {
         const iterator = (stream as any)[Symbol.asyncIterator]();
         let iterResult = await iterator.next();
 
-        // Track if we've seen tool calls
+        // Variables for tracking the current tool call being built
+        let collectingToolUse = false;
+        let currentToolName = '';
+        let currentToolParametersJson = '';
         let hasSeenToolCall = false;
+        let assistantContent = ''; // Track accumulated content
 
         while (!iterResult.done) {
           const chunk = iterResult.value;
@@ -764,8 +770,638 @@ export class SessionManager {
             chunk.type === 'content_block_delta' &&
             chunk.delta.type === 'text_delta'
           ) {
-            // Content chunks
-            yield { type: 'content', content: chunk.delta.text };
+            // Accumulate assistant content
+            const text = chunk.delta.text || '';
+            assistantContent += text;
+
+            // Check if this is part of a tool call using legacy format <tool> tags
+            if (text.includes('<tool>') && !collectingToolUse) {
+              // Start of a tool call
+              collectingToolUse = true;
+              hasSeenToolCall = true;
+              const startPos = text.indexOf('<tool>') + 6;
+              const endPos = text.indexOf('</tool>');
+
+              if (endPos > startPos) {
+                // Complete tool call in a single chunk
+                const toolContent = text.substring(startPos, endPos).trim();
+                const spaceIndex = toolContent.indexOf(' ');
+
+                if (spaceIndex > -1) {
+                  currentToolName = toolContent.slice(0, spaceIndex);
+                  currentToolParametersJson = toolContent.slice(spaceIndex + 1);
+
+                  // Store assistant message before tool execution
+                  const preToolContent = text.substring(0, startPos - 6).trim();
+                  if (preToolContent) {
+                    const preToolMessage = {
+                      role: 'assistant' as const,
+                      content: preToolContent,
+                      timestamp: new Date(),
+                    };
+                    session.messages.push(preToolMessage);
+                  }
+
+                  // Yield the tool_start event
+                  yield {
+                    type: 'tool_start',
+                    content: `Using tool: ${currentToolName}`,
+                  };
+
+                  // Execute the tool
+                  if (session.toolCallCount >= session.maxToolCalls) {
+                    console.log(
+                      '[SESSION] Tool call limit reached, not executing more tools'
+                    );
+                    yield {
+                      type: 'content',
+                      content: `I've reached my tool usage limit of ${session.maxToolCalls} calls.`,
+                    };
+                  } else {
+                    try {
+                      session.toolCallCount++;
+                      console.log(
+                        `[SESSION] Executing tool ${currentToolName} with parameters: ${currentToolParametersJson}`
+                      );
+
+                      // Parse parameters
+                      const parameters = JSON.parse(currentToolParametersJson);
+
+                      // Execute the tool
+                      const result = await this.executeTool(
+                        session,
+                        currentToolName,
+                        parameters
+                      );
+
+                      // Create a formatted result for the conversation
+                      const resultStr = JSON.stringify(result);
+
+                      // Add the tool result to the session messages
+                      const toolResultMessage = {
+                        role: 'assistant' as const,
+                        content: resultStr,
+                        isToolResult: true,
+                        timestamp: new Date(),
+                      };
+                      session.messages.push(toolResultMessage);
+
+                      // Yield the tool result
+                      yield {
+                        type: 'tool_result',
+                        content: resultStr,
+                      };
+
+                      // Continue conversation with a new API call that includes the tool result
+                      // Create a new stream to get the LLM's response to the tool result
+                      const continuationApiParams = {
+                        model: session.config.model,
+                        max_tokens: 1024,
+                        messages: session.messages.map(msg => ({
+                          role: msg.role === 'system' ? 'user' : msg.role,
+                          content: msg.content,
+                          // Include tool_result flag to help model understand conversation context
+                          ...(msg.isToolResult && { tool_result: true }),
+                        })),
+                        tools: tools,
+                        stream: true as const,
+                      };
+
+                      // Request a continuation of the conversation
+                      console.log(
+                        '[SESSION] Creating continuation stream after tool execution with',
+                        session.messages.length,
+                        'messages'
+                      );
+                      const continuationStream =
+                        await this.anthropic.messages.create(
+                          continuationApiParams
+                        );
+
+                      // Process the continuation stream
+                      const continuationIterator = (continuationStream as any)[
+                        Symbol.asyncIterator
+                      ]();
+                      let continuationResult =
+                        await continuationIterator.next();
+
+                      // Track if we've seen and yielded content after the tool result
+                      let hasYieldedContentAfterTool = false;
+                      let continuationContent = '';
+
+                      while (!continuationResult.done) {
+                        const continuationChunk = continuationResult.value;
+
+                        // Only process text content from the continuation
+                        if (
+                          continuationChunk.type === 'content_block_delta' &&
+                          continuationChunk.delta.type === 'text_delta' &&
+                          continuationChunk.delta.text
+                        ) {
+                          // Accumulate continuation content
+                          continuationContent += continuationChunk.delta.text;
+
+                          // Yield the content from the continuation
+                          yield {
+                            type: 'content',
+                            content: continuationChunk.delta.text,
+                          };
+                          hasYieldedContentAfterTool = true;
+                        } else if (continuationChunk.type === 'thinking') {
+                          yield {
+                            type: 'thinking',
+                            content:
+                              continuationChunk.thinking || 'Thinking...',
+                          };
+                        }
+
+                        continuationResult = await continuationIterator.next();
+                      }
+
+                      // If we didn't yield any content, provide a fallback response
+                      if (!hasYieldedContentAfterTool) {
+                        console.log(
+                          '[SESSION] No content received in continuation, adding fallback message'
+                        );
+                        const fallbackContent =
+                          'Based on the results, I see the information you requested.';
+                        continuationContent = fallbackContent;
+                        yield {
+                          type: 'content',
+                          content: fallbackContent,
+                        };
+                      }
+
+                      // Store the final assistant response in the session
+                      if (continuationContent) {
+                        const assistantMessage = {
+                          role: 'assistant' as const,
+                          content: continuationContent,
+                          timestamp: new Date(),
+                        };
+                        session.messages.push(assistantMessage);
+
+                        console.log(
+                          `[SESSION] Added continuation response to history: "${continuationContent.substring(
+                            0,
+                            50
+                          )}..."`
+                        );
+                      }
+
+                      // Add debug logging to track conversation state
+                      console.log(
+                        `[SESSION] Updated conversation history after tool execution:`,
+                        session.messages.map(m => ({
+                          role: m.role,
+                          content_preview: m.content.substring(0, 30) + '...',
+                          isToolResult: m.isToolResult || false,
+                        }))
+                      );
+                    } catch (error) {
+                      console.error('[SESSION] Error executing tool:', error);
+                      yield {
+                        type: 'error',
+                        error: `Error executing tool ${currentToolName}: ${
+                          error instanceof Error
+                            ? error.message
+                            : 'Unknown error'
+                        }`,
+                      };
+                    }
+                  }
+
+                  // Reset tool collection state
+                  collectingToolUse = false;
+                  currentToolName = '';
+                  currentToolParametersJson = '';
+                }
+              } else {
+                // Start of a multi-chunk tool call, only collect the name for now
+                const partialContent = text.substring(startPos);
+                const spaceIndex = partialContent.indexOf(' ');
+
+                if (spaceIndex > -1) {
+                  // We have the name and part of parameters
+                  currentToolName = partialContent.slice(0, spaceIndex);
+                  currentToolParametersJson = partialContent.slice(
+                    spaceIndex + 1
+                  );
+                } else {
+                  // We only have part of the name
+                  currentToolName = partialContent;
+                }
+              }
+            } else if (collectingToolUse) {
+              // Continue collecting tool parameters
+              if (text.includes('</tool>')) {
+                // End of the tool call
+                const endPos = text.indexOf('</tool>');
+                currentToolParametersJson += text.substring(0, endPos);
+                collectingToolUse = false;
+
+                // Complete tool call collected, yield the tool_start event
+                yield {
+                  type: 'tool_start',
+                  content: `Using tool: ${currentToolName}`,
+                };
+
+                // Execute the tool
+                if (session.toolCallCount >= session.maxToolCalls) {
+                  console.log(
+                    '[SESSION] Tool call limit reached, not executing more tools'
+                  );
+                  yield {
+                    type: 'content',
+                    content: `I've reached my tool usage limit of ${session.maxToolCalls} calls.`,
+                  };
+                } else {
+                  try {
+                    session.toolCallCount++;
+                    console.log(
+                      `[SESSION] Executing tool ${currentToolName} with parameters: ${currentToolParametersJson}`
+                    );
+
+                    // Parse parameters
+                    const parameters = JSON.parse(currentToolParametersJson);
+
+                    // Execute the tool
+                    const result = await this.executeTool(
+                      session,
+                      currentToolName,
+                      parameters
+                    );
+
+                    // Create a formatted result for the conversation
+                    const resultStr = JSON.stringify(result);
+
+                    // Add the tool result to the session messages
+                    const toolResultMessage = {
+                      role: 'assistant' as const,
+                      content: resultStr,
+                      isToolResult: true,
+                      timestamp: new Date(),
+                    };
+                    session.messages.push(toolResultMessage);
+
+                    // Yield the tool result
+                    yield {
+                      type: 'tool_result',
+                      content: resultStr,
+                    };
+
+                    // Continue conversation with a new API call that includes the tool result
+                    // Create a new stream to get the LLM's response to the tool result
+                    const continuationApiParams = {
+                      model: session.config.model,
+                      max_tokens: 1024,
+                      messages: session.messages.map(msg => ({
+                        role: msg.role === 'system' ? 'user' : msg.role,
+                        content: msg.content,
+                        // Include tool results flag to help model understand conversation context
+                        ...(msg.isToolResult && { tool_result: true }),
+                      })),
+                      tools: tools,
+                      stream: true as const,
+                    };
+
+                    // Request a continuation of the conversation
+                    console.log(
+                      '[SESSION] Creating continuation stream after tool execution'
+                    );
+                    const continuationStream =
+                      await this.anthropic.messages.create(
+                        continuationApiParams
+                      );
+
+                    // Process the continuation stream
+                    const continuationIterator = (continuationStream as any)[
+                      Symbol.asyncIterator
+                    ]();
+                    let continuationResult = await continuationIterator.next();
+
+                    // Track if we've seen and yielded content after the tool result
+                    let hasYieldedContentAfterTool = false;
+                    let continuationContent = '';
+
+                    while (!continuationResult.done) {
+                      const continuationChunk = continuationResult.value;
+
+                      // Only process text content from the continuation
+                      if (
+                        continuationChunk.type === 'content_block_delta' &&
+                        continuationChunk.delta.type === 'text_delta' &&
+                        continuationChunk.delta.text
+                      ) {
+                        // Accumulate continuation content
+                        continuationContent += continuationChunk.delta.text;
+
+                        // Yield the content from the continuation
+                        yield {
+                          type: 'content',
+                          content: continuationChunk.delta.text,
+                        };
+                        hasYieldedContentAfterTool = true;
+                      } else if (continuationChunk.type === 'thinking') {
+                        yield {
+                          type: 'thinking',
+                          content: continuationChunk.thinking || 'Thinking...',
+                        };
+                      }
+
+                      continuationResult = await continuationIterator.next();
+                    }
+
+                    // If we didn't yield any content, provide a fallback response
+                    if (!hasYieldedContentAfterTool) {
+                      console.log(
+                        '[SESSION] No content received in continuation, adding fallback message'
+                      );
+                      const fallbackContent =
+                        'Based on the results, I see the information you requested.';
+                      continuationContent = fallbackContent;
+                      yield {
+                        type: 'content',
+                        content: fallbackContent,
+                      };
+                    }
+
+                    // Store the final assistant response in the session
+                    if (continuationContent) {
+                      const assistantMessage = {
+                        role: 'assistant' as const,
+                        content: continuationContent,
+                        timestamp: new Date(),
+                      };
+                      session.messages.push(assistantMessage);
+
+                      console.log(
+                        `[SESSION] Added continuation response to history: "${continuationContent.substring(
+                          0,
+                          50
+                        )}..."`
+                      );
+                    }
+
+                    // Add debug logging to track conversation state
+                    console.log(
+                      `[SESSION] Updated conversation history after tool execution:`,
+                      session.messages.map(m => ({
+                        role: m.role,
+                        content_preview: m.content.substring(0, 30) + '...',
+                        isToolResult: m.isToolResult || false,
+                      }))
+                    );
+                  } catch (error) {
+                    console.error('[SESSION] Error executing tool:', error);
+                    yield {
+                      type: 'error',
+                      error: `Error executing tool ${currentToolName}: ${
+                        error instanceof Error ? error.message : 'Unknown error'
+                      }`,
+                    };
+                  }
+                }
+
+                // Reset tool collection state
+                collectingToolUse = false;
+                currentToolName = '';
+                currentToolParametersJson = '';
+              } else {
+                // Continue collecting parameters
+                currentToolParametersJson += text;
+              }
+            } else {
+              // Normal content
+              yield { type: 'content', content: text };
+            }
+          } else if (
+            chunk.type === 'content_block_start' &&
+            chunk.content_block.type === 'tool_use'
+          ) {
+            // Modern structured tool call
+            console.log(
+              '[SESSION] Tool call detected in stream',
+              JSON.stringify(chunk.content_block)
+            );
+            hasSeenToolCall = true;
+            const toolName = chunk.content_block.name || 'unknown';
+
+            // Yield the tool_start event
+            yield {
+              type: 'tool_start',
+              content: `Using tool: ${toolName}`,
+            };
+
+            // Modern tool calls collect parameters over multiple chunks
+            // We'll collect them in the tool_use_delta events
+            currentToolName = toolName;
+            currentToolParametersJson = '{}'; // Initialize with empty object
+          } else if (
+            chunk.type === 'content_block_delta' &&
+            chunk.delta.type === 'tool_use_delta'
+          ) {
+            // Tool call parameter delta for modern structured tool calls
+            if (chunk.delta.input) {
+              // Update parameters
+              try {
+                const currentParams = JSON.parse(currentToolParametersJson);
+                const deltaParams = chunk.delta.input;
+                currentToolParametersJson = JSON.stringify({
+                  ...currentParams,
+                  ...deltaParams,
+                });
+              } catch (e) {
+                console.error('[SESSION] Error parsing tool parameters:', e);
+              }
+            }
+          } else if (
+            chunk.type === 'content_block_stop' &&
+            hasSeenToolCall &&
+            currentToolName
+          ) {
+            // End of tool call block, execute the tool
+            if (session.toolCallCount >= session.maxToolCalls) {
+              console.log(
+                '[SESSION] Tool call limit reached, not executing more tools'
+              );
+              yield {
+                type: 'content',
+                content: `I've reached my tool usage limit of ${session.maxToolCalls} calls.`,
+              };
+            } else {
+              try {
+                session.toolCallCount++;
+                console.log(
+                  `[SESSION] Executing tool ${currentToolName} with parameters: ${currentToolParametersJson}`
+                );
+
+                // Parse parameters
+                const parameters = JSON.parse(currentToolParametersJson);
+
+                // Store assistant message before tool execution if we have content
+                if (assistantContent) {
+                  // Extract content before tool call
+                  const contentBeforeTool = assistantContent
+                    .split('<tool>')[0]
+                    .trim();
+                  if (contentBeforeTool) {
+                    const preToolMessage = {
+                      role: 'assistant' as const,
+                      content: contentBeforeTool,
+                      timestamp: new Date(),
+                    };
+                    session.messages.push(preToolMessage);
+                    console.log(
+                      '[SESSION] Stored assistant message before tool call:',
+                      contentBeforeTool
+                    );
+                  }
+                }
+
+                // Execute the tool
+                const result = await this.executeTool(
+                  session,
+                  currentToolName,
+                  parameters
+                );
+
+                // Create a formatted result for the conversation
+                const resultStr = JSON.stringify(result);
+
+                // Add the tool result to the session messages
+                const toolResultMessage = {
+                  role: 'assistant' as const,
+                  content: resultStr,
+                  isToolResult: true,
+                  timestamp: new Date(),
+                };
+                session.messages.push(toolResultMessage);
+
+                // Yield the tool result
+                yield {
+                  type: 'tool_result',
+                  content: resultStr,
+                };
+
+                // Continue conversation with a new API call that includes the tool result
+                const continuationApiParams = {
+                  model: session.config.model,
+                  max_tokens: 1024,
+                  messages: session.messages.map(msg => ({
+                    role: msg.role === 'system' ? 'user' : msg.role,
+                    content: msg.content,
+                    // Include tool results flag to help model understand conversation context
+                    ...(msg.isToolResult && { tool_result: true }),
+                  })),
+                  tools: tools,
+                  stream: true as const,
+                };
+
+                // Request a continuation of the conversation
+                console.log(
+                  '[SESSION] Creating continuation stream after tool execution with',
+                  session.messages.length,
+                  'messages'
+                );
+                const continuationStream = await this.anthropic.messages.create(
+                  continuationApiParams
+                );
+
+                // Process the continuation stream
+                const continuationIterator = (continuationStream as any)[
+                  Symbol.asyncIterator
+                ]();
+                let continuationResult = await continuationIterator.next();
+
+                // Track if we've seen and yielded content after the tool result
+                let hasYieldedContentAfterTool = false;
+
+                // Collect new assistant response to add to session
+                let continuationContent = '';
+
+                while (!continuationResult.done) {
+                  const continuationChunk = continuationResult.value;
+
+                  // Only process text content from the continuation
+                  if (
+                    continuationChunk.type === 'content_block_delta' &&
+                    continuationChunk.delta.type === 'text_delta' &&
+                    continuationChunk.delta.text
+                  ) {
+                    // Add to the full response content
+                    continuationContent += continuationChunk.delta.text;
+
+                    // Yield the content from the continuation
+                    yield {
+                      type: 'content',
+                      content: continuationChunk.delta.text,
+                    };
+                    hasYieldedContentAfterTool = true;
+                  } else if (continuationChunk.type === 'thinking') {
+                    yield {
+                      type: 'thinking',
+                      content: continuationChunk.thinking || 'Thinking...',
+                    };
+                  }
+
+                  continuationResult = await continuationIterator.next();
+                }
+
+                // If we didn't yield any content, provide a fallback response
+                if (!hasYieldedContentAfterTool) {
+                  console.log(
+                    '[SESSION] No content received in continuation, adding fallback message'
+                  );
+                  const fallbackText =
+                    'Based on the results, I see the information you requested.';
+                  yield {
+                    type: 'content',
+                    content: fallbackText,
+                  };
+                  continuationContent = fallbackText;
+                }
+
+                // Store the final assistant response in the session
+                if (continuationContent) {
+                  const assistantMessage = {
+                    role: 'assistant' as const,
+                    content: continuationContent,
+                    timestamp: new Date(),
+                  };
+                  session.messages.push(assistantMessage);
+
+                  console.log(
+                    `[SESSION] Added continuation response to history: "${continuationContent.substring(
+                      0,
+                      50
+                    )}..."`
+                  );
+                }
+
+                // Add debug logging to track conversation state
+                console.log(
+                  `[SESSION] Updated conversation history after tool execution:`,
+                  session.messages.map(m => ({
+                    role: m.role,
+                    content_preview: m.content.substring(0, 30) + '...',
+                    isToolResult: m.isToolResult || false,
+                  }))
+                );
+              } catch (error) {
+                console.error('[SESSION] Error executing tool:', error);
+                yield {
+                  type: 'error',
+                  error: `Error executing tool ${currentToolName}: ${
+                    error instanceof Error ? error.message : 'Unknown error'
+                  }`,
+                };
+              }
+            }
+
+            // Reset tool state
+            currentToolName = '';
+            currentToolParametersJson = '';
           } else if (chunk.type === 'thinking') {
             // Thinking chunks
             console.log('[SESSION] Received thinking chunk');
@@ -773,28 +1409,6 @@ export class SessionManager {
               type: 'thinking',
               content: chunk.thinking || 'Thinking...',
             };
-          } else if (
-            chunk.type === 'content_block_start' &&
-            chunk.content_block.type === 'tool_use'
-          ) {
-            // Tool call detected
-            console.log(
-              '[SESSION] Tool call detected in stream',
-              JSON.stringify(chunk.content_block)
-            );
-            hasSeenToolCall = true;
-            const toolName = chunk.content_block.name || 'unknown';
-            yield {
-              type: 'tool_start',
-              content: `Using tool: ${toolName}`,
-            };
-          } else if (
-            chunk.type === 'content_block_delta' &&
-            chunk.delta.type === 'tool_use_delta'
-          ) {
-            // Tool call parameter delta
-            // We don't yield this as it's internal tool call building
-            console.log('[SESSION] Tool parameter delta received');
           } else if (chunk.type === 'message_delta' && chunk.usage) {
             // Usage information - can be used to update token metrics
             console.log('[SESSION] Usage information received:', chunk.usage);
@@ -802,10 +1416,38 @@ export class SessionManager {
 
           iterResult = await iterator.next();
         }
+
+        // If we have assistant content but haven't seen a tool call,
+        // make sure to add the assistant message to the history
+        if (assistantContent && !hasSeenToolCall) {
+          const assistantMessage = {
+            role: 'assistant' as const,
+            content: assistantContent,
+            timestamp: new Date(),
+          };
+          session.messages.push(assistantMessage);
+          console.log(
+            `[SESSION] Added regular assistant response to history: "${assistantContent.substring(
+              0,
+              50
+            )}..."`
+          );
+        }
       } catch (error) {
         console.error('[SESSION] Error processing stream:', error);
         yield { type: 'error', error: 'Error processing stream' };
       }
+
+      // Add better completion message to indicate end of stream
+      console.log('[SESSION] Message stream completed successfully');
+      console.log(
+        '[SESSION] Final conversation state:',
+        session.messages.map(m => ({
+          role: m.role,
+          content_preview: m.content.substring(0, 30) + '...',
+          isToolResult: m.isToolResult || false,
+        }))
+      );
 
       yield { type: 'done' };
 

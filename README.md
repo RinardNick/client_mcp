@@ -97,6 +97,65 @@ const session = await sessionManager.initializeSession(config);
 const sessionId = session.id;
 ```
 
+### Multi-Provider Configuration
+
+The client supports using multiple LLM providers in your configuration:
+
+```typescript
+// Multi-provider configuration
+const multiProviderConfig = {
+  // Provider configurations
+  providers: {
+    anthropic: {
+      api_key: process.env.ANTHROPIC_API_KEY,
+      default_model: 'claude-3-5-sonnet-20241022',
+      system_prompt: 'You are a helpful assistant with access to tools.',
+      thinking: {
+        enabled: true,
+        budget_tokens: 6000,
+      },
+    },
+    openai: {
+      api_key: process.env.OPENAI_API_KEY,
+      default_model: 'gpt-4',
+      system_prompt: 'You are a helpful assistant with access to tools.',
+    },
+  },
+
+  // Default provider to use
+  default_provider: 'anthropic',
+
+  // Fallback providers if primary fails
+  provider_fallbacks: {
+    anthropic: ['openai'],
+    openai: ['anthropic'],
+  },
+
+  // Global configurations
+  max_tool_calls: 5,
+
+  // Server configurations (same as basic config)
+  servers: {
+    filesystem: {
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/workspace'],
+      env: {},
+    },
+  },
+};
+
+// Initialize with multi-provider config
+const sessionManager = new SessionManager();
+const session = await sessionManager.initializeSession(multiProviderConfig);
+```
+
+With multi-provider configuration, you can:
+
+- Configure multiple LLM providers with different models
+- Set provider-specific configurations
+- Define fallback providers for resilience
+- Switch between providers during a session
+
 ### Using Shared Servers
 
 For improved resource utilization, you can enable shared servers across multiple sessions:
@@ -198,6 +257,50 @@ console.log(`Cost breakdown:
   - Total cost: $${costEstimate.totalCost.toFixed(4)}
 `);
 
+// Optimize the conversation context if needed
+await sessionManager.optimizeContext(sessionId);
+```
+
+### Provider Switching
+
+You can switch between different LLM providers during an active session:
+
+```typescript
+// Start with Anthropic Claude
+const session = await sessionManager.initializeSession(config);
+const sessionId = session.id;
+
+// Send a message using Claude
+await sessionManager.sendMessage(sessionId, 'Analyze this data for trends.');
+
+// Switch to OpenAI GPT-4 mid-conversation
+const updatedSession = await sessionManager.switchSessionModel(
+  sessionId,
+  'openai', // Provider name
+  'gpt-4', // Model ID
+  {
+    api_key: process.env.OPENAI_API_KEY, // Provider API key
+  }
+);
+
+// Continue the conversation with GPT-4
+await sessionManager.sendMessage(
+  sessionId,
+  'Now give me a summary of the key insights.'
+);
+```
+
+This allows you to:
+
+- Leverage different model strengths for different parts of a conversation
+- Fallback to alternative providers if one experiences errors
+- Optimize for cost, capability, or performance as needed
+
+The client maintains conversation continuity across provider switches, ensuring a seamless experience.
+
+### Fine-Tuned Context Management
+
+```typescript
 // Configure context optimization settings
 sessionManager.setContextSettings(sessionId, {
   autoTruncate: true, // Enable automatic truncation

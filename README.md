@@ -307,6 +307,53 @@ Benefits of dynamic summarization:
 - Identifies natural breaking points like topic changes for summarization
 - Balances token efficiency with conversation quality
 
+## Context Optimization Features
+
+### Message Clustering
+
+The library includes a message clustering feature that intelligently groups related messages by topic, allowing for more coherent context optimization. When the context window gets too full, the system can remove entire topic clusters that are less important, rather than arbitrary messages.
+
+```typescript
+// Configure message clustering
+sessionManager.setContextSettings({
+  truncationStrategy: 'cluster', // Use cluster-based truncation
+  autoTruncate: true, // Automatically truncate when context is full
+  preserveSystemMessages: true, // Always keep system messages
+  preserveRecentMessages: 2, // Always keep the 2 most recent messages
+});
+```
+
+Benefits of message clustering:
+
+- **Topic Coherence**: Maintains entire conversation topics together
+- **Intelligent Pruning**: Removes less important topics first based on recency, questions, and size
+- **Improved Context Quality**: Preserves the most relevant information for the LLM
+- **Better User Experience**: Prevents the LLM from losing track of important topics
+
+### Dynamic Summarization Triggering
+
+The library supports dynamic summarization triggering based on various conditions:
+
+```typescript
+// Configure dynamic summarization
+sessionManager.setContextSettings({
+  truncationStrategy: 'summarize',
+  dynamicSummarizationEnabled: true,
+  tokenThresholdForSummarization: 70, // Trigger at 70% context usage
+  timeBetweenSummarizations: 60, // Minutes between summarizations
+  detectTopicChanges: true, // Trigger on topic changes
+  adaptiveSummarizationAggressiveness: true, // Adjust based on context pressure
+});
+```
+
+Benefits of dynamic summarization:
+
+- Maintains optimal context window usage
+- Prevents context overflow by proactively summarizing
+- Adapts summarization aggressiveness based on context pressure
+- Identifies topic changes as natural points for summarization
+- Balances token efficiency with conversation quality
+
 ## Message Flow Sequence
 
 This diagram illustrates how messages flow through the system, including tool execution:

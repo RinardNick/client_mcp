@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Multi-Provider Support - TS-MCP-Client Documentation</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css"
+    />
+    <style>
+      :root {
+        --primary: #6366f1;
+        --primary-hover: #4f46e5;
+        --primary-focus: rgba(99, 102, 241, 0.125);
+        --primary-inverse: #fff;
+      }
+
+      body > header {
+        background-color: #f9fafb;
+        border-bottom: 1px solid #e5e7eb;
+        padding: 2rem 0;
+      }
+
+      body > main {
+        padding: 2rem 0;
+      }
+
+      body > footer {
+        background-color: #f9fafb;
+        border-top: 1px solid #e5e7eb;
+        padding: 2rem 0;
+        text-align: center;
+      }
+
+      .version-badge {
+        display: inline-block;
+        background-color: var(--primary);
+        color: white;
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 9999px;
+        margin-left: 0.5rem;
+        vertical-align: middle;
+      }
+
+      .breadcrumb {
+        margin-bottom: 2rem;
+        color: #6b7280;
+      }
+
+      .breadcrumb a {
+        color: #4b5563;
+        text-decoration: none;
+      }
+
+      .breadcrumb a:hover {
+        text-decoration: underline;
+      }
+
+      .code-block {
+        background-color: #1e293b;
+        color: #e2e8f0;
+        border-radius: 8px;
+        padding: 1rem;
+        overflow-x: auto;
+        font-family: 'Fira Code', 'Courier New', Courier, monospace;
+      }
+
+      .next-steps {
+        background-color: #f8fafc;
+        padding: 2rem;
+        border-radius: 8px;
+        margin: 2rem 0;
+      }
+
+      .docs-nav {
+        position: sticky;
+        top: 20px;
+      }
+
+      .docs-nav ul {
+        list-style: none;
+        padding: 0;
+      }
+
+      .docs-nav li {
+        margin-bottom: 0.5rem;
+      }
+
+      .docs-nav a {
+        color: #4b5563;
+        text-decoration: none;
+        display: block;
+        padding: 0.5rem;
+        border-radius: 4px;
+      }
+
+      .docs-nav a:hover {
+        background-color: #f3f4f6;
+      }
+
+      .docs-nav a.active {
+        background-color: var(--primary-focus);
+        color: var(--primary);
+        font-weight: bold;
+      }
+
+      .note {
+        background-color: #eff6ff;
+        border-left: 4px solid var(--primary);
+        padding: 1rem;
+        margin: 1rem 0;
+        border-radius: 0 8px 8px 0;
+      }
+
+      .warning {
+        background-color: #fff7ed;
+        border-left: 4px solid #f97316;
+        padding: 1rem;
+        margin: 1rem 0;
+        border-radius: 0 8px 8px 0;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1rem 0;
+      }
+
+      th {
+        background-color: #f8fafc;
+        text-align: left;
+        padding: 0.75rem;
+      }
+
+      td {
+        padding: 0.75rem;
+        border-top: 1px solid #e5e7eb;
+      }
+
+      tr:nth-child(even) {
+        background-color: #f9fafb;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav class="container">
+        <ul>
+          <li>
+            <a href="../index.html"
+              ><strong>TS-MCP-Client</strong
+              ><span class="version-badge">v1.2.1</span></a
+            >
+          </li>
+        </ul>
+        <ul>
+          <li><a href="../index.html#getting-started">Getting Started</a></li>
+          <li><a href="../index.html#features">Features</a></li>
+          <li><a href="../index.html#examples">Examples</a></li>
+          <li><a href="../index.html#api">API</a></li>
+          <li>
+            <a href="https://github.com/yourusername/client_mcp" target="_blank"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+      </nav>
+    </header>
+
+    <main class="container">
+      <div class="breadcrumb">
+        <a href="../index.html">Home</a> /
+        <a href="../index.html#features">Guides</a> / Multi-Provider Support
+      </div>
+
+      <div class="grid">
+        <div class="docs-nav">
+          <h4>Guides</h4>
+          <ul>
+            <li><a href="simple-chat.html">Simple Chatbot</a></li>
+            <li><a href="tool-integration.html">Tool Integration</a></li>
+            <li>
+              <a href="multi-provider.html" class="active"
+                >Multi-Provider Support</a
+              >
+            </li>
+            <li><a href="provider-switching.html">Provider Switching</a></li>
+            <li><a href="token-optimization.html">Token Optimization</a></li>
+            <li><a href="streaming.html">Streaming Support</a></li>
+            <li><a href="error-handling.html">Error Handling</a></li>
+          </ul>
+
+          <h4>Related Topics</h4>
+          <ul>
+            <li>
+              <a href="../concepts/providers.html">Provider Architecture</a>
+            </li>
+            <li><a href="../api/providers.html">Provider API</a></li>
+            <li><a href="../api/compatibility.html">Compatibility API</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <article>
+            <h1>Multi-Provider Support</h1>
+
+            <p>
+              TS-MCP-Client offers robust support for multiple LLM providers,
+              allowing you to use different providers interchangeably with the
+              same API. This guide explains how to configure and use multiple
+              providers in your application.
+            </p>
+
+            <h2>Supported Providers</h2>
+
+            <p>The following LLM providers are currently supported:</p>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Provider</th>
+                  <th>Models</th>
+                  <th>Key Features</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Anthropic</strong></td>
+                  <td>Claude 3 (Opus, Sonnet, Haiku)</td>
+                  <td>
+                    <ul>
+                      <li>Advanced system prompting</li>
+                      <li>Tool use capability</li>
+                      <li>Thinking mode support</li>
+                    </ul>
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>OpenAI</strong></td>
+                  <td>GPT-4, GPT-3.5, GPT-4o</td>
+                  <td>
+                    <ul>
+                      <li>Function calling</li>
+                      <li>Vision capabilities</li>
+                      <li>Streaming responses</li>
+                    </ul>
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Grok</strong></td>
+                  <td>Grok-1</td>
+                  <td>
+                    <ul>
+                      <li>xAI's model</li>
+                      <li>Open weights</li>
+                      <li>Tool adaptation</li>
+                    </ul>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h2>Configuring Multiple Providers</h2>
+
+            <p>
+              To use multiple providers, you'll need to configure each provider
+              in your configuration file:
+            </p>
+
+            <div class="code-block">
+              <pre>
+{
+  "providers": {
+    "anthropic": {
+      "api_key": "${ANTHROPIC_API_KEY}",
+      "default_model": "claude-3-sonnet-20240229",
+      "system_prompt": "You are a helpful AI assistant...",
+      "thinking": {
+        "enabled": true,
+        "budget_tokens": 1000
+      }
+    },
+    "openai": {
+      "api_key": "${OPENAI_API_KEY}",
+      "default_model": "gpt-4o",
+      "system_prompt": "You are a helpful AI assistant...",
+      "temperature": 0.7
+    },
+    "grok": {
+      "api_key": "${GROK_API_KEY}",
+      "default_model": "grok-1",
+      "system_prompt": "You are a helpful AI assistant..."
+    }
+  },
+  "default_provider": "anthropic",
+  "default_models": {
+    "anthropic": "claude-3-sonnet-20240229",
+    "openai": "gpt-4o",
+    "grok": "grok-1"
+  },
+  "fallback_chain": ["anthropic", "openai", "grok"]
+}</pre
+              >
+            </div>
+
+            <h3>Configuration Options</h3>
+
+            <ul>
+              <li>
+                <strong>providers</strong>: An object containing configuration
+                for each provider
+              </li>
+              <li>
+                <strong>default_provider</strong>: The provider to use if not
+                specified when creating a session
+              </li>
+              <li>
+                <strong>default_models</strong>: The default model to use for
+                each provider if not specified
+              </li>
+              <li>
+                <strong>fallback_chain</strong>: An ordered list of providers to
+                try if the primary provider fails
+              </li>
+            </ul>
+
+            <div class="note">
+              <strong>Security Note:</strong> It's recommended to use
+              environment variables for API keys as shown in the example above
+              with <code>${ANTHROPIC_API_KEY}</code> syntax. These will be
+              automatically replaced with the corresponding environment variable
+              values.
+            </div>
+
+            <h2>Using Multiple Providers</h2>
+
+            <h3>Creating Sessions with Specific Providers</h3>
+
+            <p>
+              You can specify which provider to use when creating a new session:
+            </p>
+
+            <div class="code-block">
+              <pre>
+// Create a session with Anthropic
+const anthropicSessionId = await sessionManager.createSession({
+  provider: 'anthropic',
+  model: 'claude-3-opus-20240229'
+});
+
+// Create a session with OpenAI
+const openaiSessionId = await sessionManager.createSession({
+  provider: 'openai',
+  model: 'gpt-4o'
+});
+
+// Use the default provider
+const defaultSessionId = await sessionManager.createSession();</pre
+              >
+            </div>
+
+            <h3>Getting Available Providers</h3>
+
+            <p>
+              You can retrieve a list of available providers and their models:
+            </p>
+
+            <div class="code-block">
+              <pre>
+// Get all available providers
+const providers = sessionManager.getAvailableProviders();
+console.log('Available providers:', providers);
+
+// Get models for a specific provider
+const openaiModels = sessionManager.getProviderModels('openai');
+console.log('OpenAI models:', openaiModels);</pre
+              >
+            </div>
+
+            <h3>Checking Provider Capabilities</h3>
+
+            <p>
+              Different providers and models have different capabilities. You
+              can check what features are supported:
+            </p>
+
+            <div class="code-block">
+              <pre>
+// Check if a model supports a specific feature
+const features = sessionManager.getSupportedFeatures('anthropic', 'claude-3-opus-20240229');
+
+if (features.supportsTools) {
+  console.log('This model supports tools!');
+}
+
+if (features.supportsVision) {
+  console.log('This model supports image processing!');
+}</pre
+              >
+            </div>
+
+            <h2>Switching Between Providers</h2>
+
+            <p>
+              One of the powerful features of TS-MCP-Client is the ability to
+              switch between providers during an active conversation:
+            </p>
+
+            <div class="code-block">
+              <pre>
+// Start with Anthropic
+const sessionId = await sessionManager.createSession({
+  provider: 'anthropic',
+  model: 'claude-3-sonnet-20240229'
+});
+
+// Send a message with Anthropic
+await sessionManager.sendMessage(
+  sessionId,
+  'Tell me about quantum computing.'
+);
+
+// Check compatibility before switching
+const compatibility = await sessionManager.checkProviderCompatibility(
+  sessionId,
+  'openai',
+  'gpt-4o'
+);
+
+if (compatibility.compatible) {
+  // Switch to OpenAI mid-conversation
+  await sessionManager.switchSessionModel(
+    sessionId,
+    'openai',
+    'gpt-4o',
+    { preserveContext: true }
+  );
+  
+  // Continue conversation with OpenAI
+  await sessionManager.sendMessage(
+    sessionId,
+    'Now explain quantum entanglement in more detail.'
+  );
+}</pre
+              >
+            </div>
+
+            <div class="warning">
+              <strong>Important:</strong> When switching providers, some context
+              might be lost or altered due to different formatting requirements.
+              Always check compatibility first, especially when using tools or
+              special capabilities.
+            </div>
+
+            <h3>Compatibility Checking</h3>
+
+            <p>
+              Before switching providers, it's recommended to check
+              compatibility to avoid issues:
+            </p>
+
+            <div class="code-block">
+              <pre>
+const compatibility = await sessionManager.checkProviderCompatibility(
+  sessionId,
+  'targetProvider',
+  'targetModel'
+);
+
+console.log(`Compatible: ${compatibility.compatible}`);
+
+if (compatibility.issues.length > 0) {
+  console.log('Compatibility issues:');
+  for (const issue of compatibility.issues) {
+    console.log(`- ${issue.severity}: ${issue.description}`);
+  }
+}</pre
+              >
+            </div>
+
+            <h2>Provider Fallbacks</h2>
+
+            <p>
+              You can configure fallback chains to automatically switch to
+              alternative providers if the primary provider is unavailable or
+              returns an error:
+            </p>
+
+            <div class="code-block">
+              <pre>
+// In your configuration
+{
+  // ... other config
+  "fallback_chain": ["anthropic", "openai", "grok"]
+}
+
+// Use with automatic fallback
+const sessionId = await sessionManager.createSession({
+  enableFallbacks: true
+});
+
+// If Anthropic fails, the client will automatically try OpenAI, then Grok</pre
+              >
+            </div>
+
+            <h2>Cost Management</h2>
+
+            <p>
+              Different providers have different pricing models. You can
+              estimate costs for different providers:
+            </p>
+
+            <div class="code-block">
+              <pre>
+// Estimate costs for a specific provider and model
+const costEstimate = await sessionManager.estimateCosts(
+  sessionId,
+  'openai',
+  'gpt-4o'
+);
+
+console.log(`Estimated cost: $${costEstimate.totalCost.toFixed(4)}`);
+console.log(`Input tokens: ${costEstimate.inputTokens} ($${costEstimate.inputCost.toFixed(4)})`);
+console.log(`Output tokens: ${costEstimate.outputTokens} ($${costEstimate.outputCost.toFixed(4)})`);</pre
+              >
+            </div>
+
+            <h2>Tool Adaptation</h2>
+
+            <p>
+              When using tools with multiple providers, the TS-MCP-Client
+              automatically handles the conversion between different tool
+              formats:
+            </p>
+
+            <div class="code-block">
+              <pre>
+// Define tools in the canonical format
+const tools = [
+  {
+    name: 'calculator',
+    description: 'Performs arithmetic calculations',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        expression: {
+          type: 'string',
+          description: 'The math expression to evaluate'
+        }
+      },
+      required: ['expression']
+    }
+  }
+];
+
+// The tool adapters will automatically convert this to:
+// - Anthropic tool format
+// - OpenAI function calling format
+// - Grok tool format
+
+// Create a session with tools
+const sessionId = await sessionManager.createSession({
+  provider: 'anthropic',
+  tools: tools
+});
+
+// Later, switch to another provider
+// The tools will be automatically adapted
+await sessionManager.switchSessionModel(sessionId, 'openai', 'gpt-4o');</pre
+              >
+            </div>
+
+            <div class="next-steps">
+              <h3>Next Steps</h3>
+              <p>
+                Now that you understand how to work with multiple providers, you
+                might want to explore:
+              </p>
+              <ul>
+                <li>
+                  <a href="provider-switching.html"
+                    >Advanced Provider Switching</a
+                  >
+                </li>
+                <li><a href="tool-integration.html">Tool Integration</a></li>
+                <li>
+                  <a href="../api/compatibility.html"
+                    >Provider Compatibility API</a
+                  >
+                </li>
+              </ul>
+            </div>
+
+            <div class="grid">
+              <div>
+                <a href="tool-integration.html" role="button" class="secondary"
+                  >← Tool Integration</a
+                >
+              </div>
+              <div style="text-align: right">
+                <a href="provider-switching.html" role="button"
+                  >Provider Switching →</a
+                >
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <div class="container">
+        <p>&copy; 2024 TS-MCP-Client Documentation. Version 1.2.1.</p>
+      </div>
+    </footer>
+  </body>
+</html>

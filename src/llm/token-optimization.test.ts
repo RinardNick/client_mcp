@@ -146,33 +146,42 @@ describe('Token Optimization Features', () => {
     });
 
     it('should optimize context when approaching limits', async () => {
-      const session = await sessionManager.initializeSession(config);
+      // Arrange
+      const session = await sessionManager.initializeSession({
+        model: 'claude-3-sonnet-20240229',
+        api_key: 'test-key',
+        type: 'claude',
+        system_prompt: 'You are a helpful assistant',
+      });
       const sessionId = session.id;
 
-      // Add a bunch of messages manually to simulate a long conversation
-      for (let i = 0; i < 20; i++) {
+      // Add a bunch of messages to exceed target tokens
+      const messageBefore = 10;
+      for (let i = 0; i < messageBefore; i++) {
         session.messages.push({
           role: i % 2 === 0 ? 'user' : 'assistant',
-          content: `This is message number ${i}`,
-          timestamp: new Date(Date.now() - (20 - i) * 1000), // Older to newer
+          content: `Message ${i}`,
           tokens: 10,
         });
       }
 
-      // Force critical context flag
+      // Configure session to use oldest-first truncation
+      sessionManager.setContextSettings(sessionId, {
+        maxTokenLimit: 100,
+        autoTruncate: true,
+        preserveSystemMessages: true,
+        preserveRecentMessages: 3,
+        truncationStrategy: 'oldest-first',
+      });
+
+      // Set critical flag
       session.isContextWindowCritical = true;
 
-      // Count messages before optimization
-      const messageBefore = session.messages.length;
-
-      // Run optimization
-      const optimizedMetrics = sessionManager.optimizeContext(sessionId);
-
-      // Count messages after optimization
+      // Act
+      const optimizedMetrics = await sessionManager.optimizeContext(sessionId);
       const messagesAfter = session.messages.length;
 
-      // Verify behavior
-      expect(messagesAfter).toBeLessThan(messageBefore);
+      // Assert
       expect(messagesAfter).toBe(4); // System + 3 recent (from settings)
       expect(session.messages[0].role).toBe('system');
       expect(optimizedMetrics.totalTokens).toBeLessThan(messageBefore * 10);

@@ -7,6 +7,7 @@ import {
   TokenCost,
   ContextSettings,
   TokenAlert,
+  SummarizationMetrics,
 } from './types';
 import { Anthropic } from '@anthropic-ai/sdk';
 import type { Tool } from '@anthropic-ai/sdk/resources/messages/messages';
@@ -32,6 +33,7 @@ import {
   createSummaryMessage,
   getSummarizationMetrics,
 } from './conversation-summarization';
+import { checkAndTriggerSummarization } from './dynamic-summarization';
 
 // Note: Both of these interfaces are now imported from types.ts
 // So we don't need to re-declare them here
@@ -529,8 +531,13 @@ export class SessionManager {
       // Update token metrics for the new message
       this.updateTokenMetrics(sessionId);
 
-      // Check if context window is approaching limits
-      if (
+      // Check if dynamic summarization should be triggered
+      if (session.contextSettings?.dynamicSummarizationEnabled) {
+        console.log('[SESSION] Checking for dynamic summarization triggers');
+        await checkAndTriggerSummarization(sessionId, this);
+      }
+      // Standard context window check (existing code)
+      else if (
         session.isContextWindowCritical &&
         session.contextSettings?.autoTruncate
       ) {
@@ -1731,7 +1738,7 @@ export class SessionManager {
   /**
    * Apply basic context optimization based on settings
    */
-  optimizeContext(sessionId: string): TokenMetrics {
+  async optimizeContext(sessionId: string): Promise<TokenMetrics> {
     const session = this.getSession(sessionId);
 
     if (!session.contextSettings?.autoTruncate) {
@@ -1753,7 +1760,9 @@ export class SessionManager {
     // Select optimization strategy based on config
     if (session.contextSettings.truncationStrategy === 'summarize') {
       // Use conversation summarization strategy
-      return this.truncateBySummarization(session);
+      await this.truncateBySummarization(session);
+      // Get updated token metrics after summarization
+      return this.getSessionTokenUsage(sessionId);
     } else if (session.contextSettings.truncationStrategy === 'selective') {
       // Use relevance-based pruning for selective strategy
       this.truncateByRelevance(session);
@@ -1771,7 +1780,7 @@ export class SessionManager {
    * This strategy replaces groups of messages with concise summaries
    * @param session The chat session to optimize
    */
-  private async truncateBySummarization(
+  public async truncateBySummarization(
     session: ChatSession
   ): Promise<TokenMetrics> {
     console.log(`[SESSION] Using conversation summarization strategy`);

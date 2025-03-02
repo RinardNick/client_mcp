@@ -101,6 +101,13 @@ export interface ContextSettings {
   summarizationBatchSize?: number;
   /* Minimum compression ratio to keep summaries */
   minCompressionRatio?: number;
+
+  /* Dynamic summarization settings */
+  dynamicSummarizationEnabled?: boolean; // Enable dynamic summarization triggering
+  tokenThresholdForSummarization?: number; // Percentage threshold to trigger summarization (0-100)
+  timeBetweenSummarizations?: number; // Minutes between summarizations
+  detectTopicChanges?: boolean; // Whether to detect topic changes for summarization
+  adaptiveSummarizationAggressiveness?: boolean; // Adjust summarization aggressiveness based on context pressure
 }
 
 /**
@@ -137,6 +144,8 @@ export interface ChatSession {
   tokenCost?: TokenCost;
   contextSettings?: ContextSettings;
   isContextWindowCritical?: boolean;
+  // Summarization tracking
+  lastSummarizedAt?: Date; // When the conversation was last summarized
 }
 
 export interface ToolCall {

@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Provider Switching - TS-MCP-Client Documentation</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --primary-focus: rgba(99, 102, 241, 0.125);
+            --primary-inverse: #FFF;
+        }
+        
+        body > header {
+            background-color: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 2rem 0;
+        }
+        
+        body > main {
+            padding: 2rem 0;
+        }
+        
+        body > footer {
+            background-color: #f9fafb;
+            border-top: 1px solid #e5e7eb;
+            padding: 2rem 0;
+            text-align: center;
+        }
+        
+        .version-badge {
+            display: inline-block;
+            background-color: var(--primary);
+            color: white;
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+        }
+        
+        .breadcrumb {
+            margin-bottom: 2rem;
+            color: #6b7280;
+        }
+        
+        .breadcrumb a {
+            color: #4b5563;
+            text-decoration: none;
+        }
+        
+        .breadcrumb a:hover {
+            text-decoration: underline;
+        }
+        
+        .code-block {
+            background-color: #1e293b;
+            color: #e2e8f0;
+            border-radius: 8px;
+            padding: 1rem;
+            overflow-x: auto;
+            font-family: 'Fira Code', 'Courier New', Courier, monospace;
+        }
+        
+        .next-steps {
+            background-color: #f8fafc;
+            padding: 2rem;
+            border-radius: 8px;
+            margin: 2rem 0;
+        }
+        
+        .docs-nav {
+            position: sticky;
+            top: 20px;
+        }
+        
+        .docs-nav ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .docs-nav li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .docs-nav a {
+            color: #4b5563;
+            text-decoration: none;
+            display: block;
+            padding: 0.5rem;
+            border-radius: 4px;
+        }
+        
+        .docs-nav a:hover {
+            background-color: #f3f4f6;
+        }
+        
+        .docs-nav a.active {
+            background-color: var(--primary-focus);
+            color: var(--primary);
+            font-weight: bold;
+        }
+        
+        .note {
+            background-color: #eff6ff;
+            border-left: 4px solid var(--primary);
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .warning {
+            background-color: #fff7ed;
+            border-left: 4px solid #f97316;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .info-box {
+            background-color: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+        }
+        
+        .info-box h4 {
+            margin-top: 0;
+            color: #0369a1;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <nav class="container">
+            <ul>
+                <li><a href="../index.html"><strong>TS-MCP-Client</strong><span class="version-badge">v1.2.1</span></a></li>
+            </ul>
+            <ul>
+                <li><a href="../index.html#getting-started">Getting Started</a></li>
+                <li><a href="../index.html#features">Features</a></li>
+                <li><a href="../index.html#examples">Examples</a></li>
+                <li><a href="../index.html#api">API</a></li>
+                <li><a href="https://github.com/yourusername/client_mcp" target="_blank">GitHub</a></li>
+            </ul>
+        </nav>
+    </header>
+    
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="../index.html">Home</a> / <a href="../index.html#features">Guides</a> / Provider Switching
+        </div>
+        
+        <div class="grid">
+            <div class="docs-nav">
+                <h4>Guides</h4>
+                <ul>
+                    <li><a href="simple-chat.html">Simple Chatbot</a></li>
+                    <li><a href="tool-integration.html">Tool Integration</a></li>
+                    <li><a href="multi-provider.html">Multi-Provider Support</a></li>
+                    <li><a href="provider-switching.html" class="active">Provider Switching</a></li>
+                    <li><a href="token-optimization.html">Token Optimization</a></li>
+                    <li><a href="streaming.html">Streaming Support</a></li>
+                    <li><a href="error-handling.html">Error Handling</a></li>
+                </ul>
+                
+                <h4>Related Topics</h4>
+                <ul>
+                    <li><a href="../concepts/providers.html">Provider Architecture</a></li>
+                    <li><a href="../api/providers.html">Provider API</a></li>
+                    <li><a href="../api/compatibility.html">Compatibility API</a></li>
+                </ul>
+            </div>
+            
+            <div>
+                <article>
+                    <h1>Provider Switching</h1>
+                    
+                    <p>TS-MCP-Client allows you to switch between different LLM providers during an active conversation. This guide provides an in-depth look at advanced provider switching techniques and best practices.</p>
+                    
+                    <div class="note">
+                        <strong>Note:</strong> This guide assumes you're already familiar with the basic multi-provider setup. If not, please read the <a href="multi-provider.html">Multi-Provider Support</a> guide first.
+                    </div>
+                    
+                    <h2>The Provider Switching API</h2>
+                    
+                    <p>The core of provider switching is the <code>switchSessionModel</code> method:</p>
+                    
+                    <div class="code-block">
+<pre>async function switchSessionModel(
+  sessionId: string,
+  provider: string,
+  modelId: string,
+  options?: {
+    preserveContext?: boolean;
+    adaptToolCalls?: boolean;
+    customPrompt?: string;
+    maxTokens?: number;
+  }
+): Promise<void></pre>
+                    </div>
+                    
+                    <h3>Parameters</h3>
+                    
+                    <ul>
+                        <li><strong>sessionId</strong>: The ID of the session to modify</li>
+                        <li><strong>provider</strong>: The target provider to switch to</li>
+                        <li><strong>modelId</strong>: The specific model of the target provider to use</li>
+                        <li><strong>options</strong>: Additional options for the switching process</li>
+                        <ul>
+                            <li><strong>preserveContext</strong>: Whether to migrate the conversation history (default: true)</li>
+                            <li><strong>adaptToolCalls</strong>: Whether to adapt tool calls for the new provider (default: true)</li>
+                            <li><strong>customPrompt</strong>: Optional transitional prompt to add during the switch</li>
+                            <li><strong>maxTokens</strong>: Maximum tokens to preserve when adapting context</li>
+                        </ul>
+                    </ul>
+                    
+                    <h2>Provider Switching Workflow</h2>
+                    
+                    <p>A typical provider switching workflow involves these steps:</p>
+                    
+                    <ol>
+                        <li>Check compatibility between current and target provider</li>
+                        <li>Generate migration plan (or use automatic migration)</li>
+                        <li>Execute the switch operation</li>
+                        <li>Continue the conversation with the new provider</li>
+                    </ol>
+                    
+                    <p>Here's a complete example:</p>
+                    
+                    <div class="code-block">
+<pre>import { SessionManager, loadConfig } from '@rinardnick/client_mcp';
+
+// Load configuration with multiple providers
+const config = loadConfig('./config.json');
+const sessionManager = new SessionManager(config);
+
+async function demonstrateSwitching() {
+  // Create an initial session with Anthropic
+  const sessionId = await sessionManager.createSession({
+    provider: 'anthropic',
+    model: 'claude-3-sonnet-20240229'
+  });
+  
+  // Start a conversation
+  await sessionManager.sendMessage(
+    sessionId, 
+    'Explain the basics of quantum computing'
+  );
+  
+  // Before switching, check compatibility
+  const compatibility = await sessionManager.checkProviderCompatibility(
+    sessionId,
+    'openai',
+    'gpt-4o'
+  );
+  
+  if (compatibility.compatible) {
+    console.log('Switch is compatible!');
+    
+    // If there are any warnings, display them
+    compatibility.issues
+      .filter(issue => issue.severity === 'warning')
+      .forEach(warning => {
+        console.log(`Warning: ${warning.description}`);
+      });
+    
+    // Get migration plan for better understanding
+    const migrationPlan = await sessionManager.getMigrationPlan(
+      sessionId,
+      'openai',
+      'gpt-4o'
+    );
+    
+    console.log(`Context impact: ${migrationPlan.tokenImpact} tokens`);
+    
+    // Execute the switch
+    await sessionManager.switchSessionModel(
+      sessionId,
+      'openai',
+      'gpt-4o',
+      {
+        preserveContext: true,
+        adaptToolCalls: true,
+        customPrompt: 'We are now continuing with a different AI model. Please acknowledge this transition.'
+      }
+    );
+    
+    // Continue the conversation with the new provider
+    await sessionManager.sendMessage(
+      sessionId,
+      'Now explain quantum entanglement in more detail.'
+    );
+  } else {
+    console.log('Incompatible switch! Issues:');
+    compatibility.issues.forEach(issue => {
+      console.log(`- ${issue.severity}: ${issue.description}`);
+    });
+  }
+}</pre>
+                    </div>
+                    
+                    <h2>Context Adaptation</h2>
+                    
+                    <p>One of the challenges when switching providers is adapting the conversation context to fit within the new model's constraints and format requirements.</p>
+                    
+                    <h3>Context Window Adaptation</h3>
+                    
+                    <p>When switching to a model with a smaller context window, the client will automatically prune the conversation history. You can control this behavior with options:</p>
+                    
+                    <div class="code-block">
+<pre>// When switching to a model with smaller context
+await sessionManager.switchSessionModel(
+  sessionId,
+  'targetProvider',
+  'smallerContextModel',
+  {
+    maxTokens: 5000, // Limit to 5000 tokens
+    preserveContext: true
+  }
+);</pre>
+                    </div>
+                    
+                    <div class="info-box">
+                        <h4>Context Preservation Strategy</h4>
+                        <p>When adapting context for a smaller context window, the client follows this priority:</p>
+                        <ol>
+                            <li>System messages (always preserved)</li>
+                            <li>Most recent N messages (based on settings)</li>
+                            <li>Important messages (based on relevance scoring)</li>
+                            <li>Other messages (pruned as needed)</li>
+                        </ol>
+                        <p>For advanced control, you can specify custom preservation rules in your configuration:</p>
+                        <pre>
+"token_optimization": {
+  "preserve_system_messages": true,
+  "preserve_recent_messages": 5,
+  "relevance_threshold": 0.7,
+  "summarization_enabled": true
+}</pre>
+                    </div>
+                    
+                    <h3>Message Format Adaptation</h3>
+                    
+                    <p>Different providers use different message formats. When switching, the client converts messages to the appropriate format for the target provider:</p>
+                    
+                    <ul>
+                        <li><strong>System Messages</strong>: Adapted to provider-specific format</li>
+                        <li><strong>Tool Calls</strong>: Converted between formats (function calls → tools)</li>
+                        <li><strong>Image/Media Content</strong>: Adapted when supported by target provider</li>
+                    </ul>
+                    
+                    <h2>Tool Call Adaptation</h2>
+                    
+                    <p>When switching providers, tool calls are automatically adapted to the format expected by the target provider:</p>
+                    
+                    <div class="code-block">
+<pre>// Define tools in canonical format
+const tools = [
+  {
+    name: 'calculator',
+    description: 'Performs calculations',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        expression: {
+          type: 'string',
+          description: 'The math expression'
+        }
+      },
+      required: ['expression']
+    }
+  }
+];
+
+// Create session with tools
+const sessionId = await sessionManager.createSession({
+  provider: 'anthropic',
+  tools: tools
+});
+
+// Later, switch to OpenAI - tools are automatically adapted
+await sessionManager.switchSessionModel(
+  sessionId,
+  'openai',
+  'gpt-4o',
+  { adaptToolCalls: true }
+);</pre>
+                    </div>
+                    
+                    <div class="warning">
+                        <strong>Important:</strong> Not all providers support the same tool features. Some complex tool configurations might lose functionality when switching. Use the compatibility checker to identify potential issues.
+                    </div>
+                    
+                    <h2>Automating Provider Selection</h2>
+                    
+                    <p>Instead of manually selecting a provider, you can let the client recommend the best provider for your needs:</p>
+                    
+                    <div class="code-block">
+<pre>// Find the best provider for specific requirements
+const recommendation = await sessionManager.recommendProvider({
+  featureRequirements: {
+    supportsTools: true,
+    supportsVision: true
+  },
+  costPreference: 'low',
+  contextSize: 'large'
+});
+
+// Create a session with the recommended provider
+const sessionId = await sessionManager.createSession({
+  provider: recommendation.provider,
+  model: recommendation.modelId
+});
+
+// Or, switch to the recommended provider
+await sessionManager.switchToRecommendedProvider(
+  existingSessionId, 
+  { 
+    featureRequirements: { supportsTools: true } 
+  }
+);</pre>
+                    </div>
+                    
+                    <h2>Handling Switching Errors</h2>
+                    
+                    <p>Provider switching can fail for various reasons. It's important to handle errors properly:</p>
+                    
+                    <div class="code-block">
+<pre>try {
+  await sessionManager.switchSessionModel(
+    sessionId,
+    'targetProvider',
+    'targetModel'
+  );
+  
+  console.log('Successfully switched provider');
+} catch (error) {
+  if (error.code === 'provider_not_available') {
+    console.error('Provider not available:', error.message);
+    // Try a different provider
+  } else if (error.code === 'context_adaptation_failed') {
+    console.error('Failed to adapt context:', error.message);
+    // Try with different options or smaller context
+    await sessionManager.switchSessionModel(
+      sessionId,
+      'targetProvider',
+      'targetModel',
+      { preserveContext: false }
+    );
+  } else {
+    console.error('Unexpected error:', error);
+  }
+}</pre>
+                    </div>
+                    
+                    <h2>Best Practices</h2>
+                    
+                    <h3>When to Switch Providers</h3>
+                    
+                    <p>Provider switching can be useful in several scenarios:</p>
+                    
+                    <ul>
+                        <li><strong>Capability Requirements</strong>: Switch to a provider with specific capabilities</li>
+                        <li><strong>Cost Optimization</strong>: Use less expensive providers for certain tasks</li>
+                        <li><strong>Error Recovery</strong>: Fall back to alternative providers when one fails</li>
+                        <li><strong>Performance Tuning</strong>: Choose providers based on response quality for specific domains</li>
+                    </ul>
+                    
+                    <h3>Tips for Successful Switching</h3>
+                    
+                    <ul>
+                        <li>Always check compatibility before switching</li>
+                        <li>Include a transition message to acknowledge the switch to the user</li>
+                        <li>Monitor token usage when switching between models with different context sizes</li>
+                        <li>Test provider switching with your specific tool configurations</li>
+                        <li>Implement proper error handling for switching operations</li>
+                    </ul>
+                    
+                    <div class="next-steps">
+                        <h3>Next Steps</h3>
+                        <p>Now that you understand provider switching, you might want to explore:</p>
+                        <ul>
+                            <li><a href="token-optimization.html">Token Optimization</a></li>
+                            <li><a href="../api/compatibility.html">Provider Compatibility API</a></li>
+                            <li><a href="../examples/advanced-provider-switching.html">Advanced Provider Switching Example</a></li>
+                        </ul>
+                    </div>
+                    
+                    <div class="grid">
+                        <div>
+                            <a href="multi-provider.html" role="button" class="secondary">← Multi-Provider Support</a>
+                        </div>
+                        <div style="text-align: right;">
+                            <a href="token-optimization.html" role="button">Token Optimization →</a>
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </div>
+    </main>
+    
+    <footer>
+        <div class="container">
+            <p>&copy; 2024 TS-MCP-Client Documentation. Version 1.2.1.</p>
+        </div>
+    </footer>
+</body>
+</html> 

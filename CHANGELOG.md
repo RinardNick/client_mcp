@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed issues with context window adaptation when switching between models with different limits
+- Fixed OpenAI provider compatibility issue with latest SDK versions
+  - Updated stream handling to support different OpenAI SDK implementations
+  - Added proper type annotations and runtime checks for better compatibility
+  - Improved error handling during streaming operations
 
 ## [1.4.0] - Tool Capability Management
 

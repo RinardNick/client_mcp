@@ -36,6 +36,7 @@ export class SessionManager {
   private anthropic!: Anthropic;
   private serverLauncher: ServerLauncher;
   private serverDiscovery: ServerDiscovery;
+  private useSharedServers: boolean;
 
   private formatToolsForLLM(tools: MCPTool[]): Tool[] {
     console.log('[SESSION] Formatting tools for LLM:', tools);
@@ -49,9 +50,10 @@ export class SessionManager {
     }));
   }
 
-  constructor() {
+  constructor(options?: { useSharedServers?: boolean }) {
     this.serverLauncher = new ServerLauncher();
     this.serverDiscovery = new ServerDiscovery();
+    this.useSharedServers = options?.useSharedServers ?? false;
   }
 
   async initializeSession(config: LLMConfig): Promise<ChatSession> {
@@ -137,49 +139,100 @@ export class SessionManager {
             Object.keys(config.servers)
           )}`
         );
-        for (const [serverName, serverConfig] of Object.entries(
-          config.servers
-        )) {
-          try {
-            await this.serverLauncher.launchServer(serverName, serverConfig);
-            console.log(`[SESSION] Server ${serverName} launched successfully`);
 
-            // Get the server process
-            const serverProcess =
-              this.serverLauncher.getServerProcess(serverName);
-            if (!serverProcess) {
-              throw new Error(`Server process not found for ${serverName}`);
+        if (this.useSharedServers) {
+          // Use ServerPool for shared servers
+          console.log('[SESSION] Using shared server pool');
+          const ServerPool = (await import('../server/pool')).ServerPool;
+          const serverPool = ServerPool.getInstance();
+
+          for (const [serverName, serverConfig] of Object.entries(
+            config.servers
+          )) {
+            try {
+              // Get or create server from pool
+              console.log(`[SESSION] Getting server ${serverName} from pool`);
+              const result = await serverPool.getOrCreateServer(
+                serverName,
+                serverConfig
+              );
+
+              // Store client and capabilities
+              session.serverClients.set(serverName, result.client);
+              session.tools.push(...result.capabilities.tools);
+              session.resources.push(...result.capabilities.resources);
+
+              // Register session-server association
+              serverPool.registerSessionServer(sessionId, serverName);
+
+              console.log(
+                `[SESSION] Added ${result.capabilities.tools.length} tools and ${result.capabilities.resources.length} resources from ${serverName}`
+              );
+              console.log(
+                `[SESSION] Registered tools from ${serverName}: ${JSON.stringify(
+                  result.capabilities.tools.map(t => t.name)
+                )}`
+              );
+              console.log(
+                `[SESSION] Active server clients: ${session.serverClients.size}`
+              );
+            } catch (error) {
+              console.error(
+                `[SESSION] Failed to initialize server ${serverName} from pool:`,
+                error
+              );
+              // Don't store the session if server initialization fails
+              throw error;
             }
+          }
+        } else {
+          // Use existing direct server initialization logic
+          for (const [serverName, serverConfig] of Object.entries(
+            config.servers
+          )) {
+            try {
+              await this.serverLauncher.launchServer(serverName, serverConfig);
+              console.log(
+                `[SESSION] Server ${serverName} launched successfully`
+              );
 
-            // Discover server capabilities
-            const result = await this.serverDiscovery.discoverCapabilities(
-              serverName,
-              serverProcess
-            );
+              // Get the server process
+              const serverProcess =
+                this.serverLauncher.getServerProcess(serverName);
+              if (!serverProcess) {
+                throw new Error(`Server process not found for ${serverName}`);
+              }
 
-            // Store client and capabilities
-            session.serverClients.set(serverName, result.client);
-            session.tools.push(...result.capabilities.tools);
-            session.resources.push(...result.capabilities.resources);
+              // Discover server capabilities
+              const result = await this.serverDiscovery.discoverCapabilities(
+                serverName,
+                serverProcess
+              );
 
-            console.log(
-              `[SESSION] Added ${result.capabilities.tools.length} tools and ${result.capabilities.resources.length} resources from ${serverName}`
-            );
-            console.log(
-              `[SESSION] Registered tools from ${serverName}: ${JSON.stringify(
-                result.capabilities.tools.map(t => t.name)
-              )}`
-            );
-            console.log(
-              `[SESSION] Active server clients: ${session.serverClients.size}`
-            );
-          } catch (error) {
-            console.error(
-              `[SESSION] Failed to initialize server ${serverName}:`,
-              error
-            );
-            // Don't store the session if server initialization fails
-            throw error;
+              // Store client and capabilities
+              session.serverClients.set(serverName, result.client);
+              session.tools.push(...result.capabilities.tools);
+              session.resources.push(...result.capabilities.resources);
+
+              console.log(
+                `[SESSION] Added ${result.capabilities.tools.length} tools and ${result.capabilities.resources.length} resources from ${serverName}`
+              );
+              console.log(
+                `[SESSION] Registered tools from ${serverName}: ${JSON.stringify(
+                  result.capabilities.tools.map(t => t.name)
+                )}`
+              );
+              console.log(
+                `[SESSION] Active server clients: ${session.serverClients.size}`
+              );
+            } catch (error) {
+              console.error(
+                `[SESSION] Failed to initialize server ${serverName}:`,
+                error
+              );
+              // Don't store the session if server initialization fails
+              throw error;
+            }
           }
         }
       }
@@ -1147,7 +1200,7 @@ export class SessionManager {
                         continuationChunk.delta.type === 'text_delta' &&
                         continuationChunk.delta.text
                       ) {
-                        // Accumulate continuation content
+                        // Add to the full response content
                         continuationContent += continuationChunk.delta.text;
 
                         // Yield the content from the continuation
@@ -1907,27 +1960,40 @@ export class SessionManager {
   async cleanup() {
     console.log('[SESSION] Starting cleanup...');
 
-    // Close all connections
-    for (const [sessionId, session] of globalSessions.entries()) {
-      console.log(`[SESSION] Closing connections for session ${sessionId}`);
-      for (const [serverName, client] of session.serverClients.entries()) {
-        if (client && typeof client.close === 'function') {
-          try {
-            client.close();
-            console.log(`[SESSION] Closed client for ${serverName}`);
-          } catch (error) {
-            console.error(
-              `[SESSION] Error closing client for ${serverName}:`,
-              error
-            );
+    if (this.useSharedServers) {
+      // If using shared servers, release from pool
+      console.log('[SESSION] Using shared server pool for cleanup');
+      const ServerPool = (await import('../server/pool')).ServerPool;
+      const serverPool = ServerPool.getInstance();
+
+      // Release each session's servers
+      for (const [sessionId, session] of globalSessions.entries()) {
+        console.log(`[SESSION] Releasing servers for session ${sessionId}`);
+        serverPool.releaseSessionServers(sessionId);
+      }
+    } else {
+      // Close all connections
+      for (const [sessionId, session] of globalSessions.entries()) {
+        console.log(`[SESSION] Closing connections for session ${sessionId}`);
+        for (const [serverName, client] of session.serverClients.entries()) {
+          if (client && typeof client.close === 'function') {
+            try {
+              client.close();
+              console.log(`[SESSION] Closed client for ${serverName}`);
+            } catch (error) {
+              console.error(
+                `[SESSION] Error closing client for ${serverName}:`,
+                error
+              );
+            }
           }
         }
       }
-    }
 
-    // Stop all server processes
-    console.log('[SESSION] Stopping all server processes');
-    await this.serverLauncher.stopAll();
+      // Stop all server processes
+      console.log('[SESSION] Stopping all server processes');
+      await this.serverLauncher.stopAll();
+    }
 
     // Clear all sessions
     console.log('[SESSION] Clearing session store');

@@ -96,7 +96,7 @@ export interface ContextSettings {
   autoTruncate: boolean;
   preserveSystemMessages: boolean;
   preserveRecentMessages: number; // Number of recent messages to always keep
-  truncationStrategy: 'oldest-first' | 'selective' | 'summarize';
+  truncationStrategy: TruncationStrategy;
   /* Message batch size for summarization */
   summarizationBatchSize?: number;
   /* Minimum compression ratio to keep summaries */
@@ -189,3 +189,28 @@ export interface TokenAlert {
   timestamp: Date;
   recommendation: string;
 }
+
+/**
+ * Represents a group of related messages in a conversation
+ */
+export interface MessageCluster {
+  /** Topic or theme of the cluster */
+  topic: string;
+  /** Messages that belong to this cluster */
+  messages: ChatMessage[];
+  /** Importance score of this cluster (higher = more important) */
+  importance: number;
+  /** Unique identifier for the cluster */
+  id?: string;
+  /** Total tokens used by all messages in this cluster */
+  totalTokens?: number;
+}
+
+/**
+ * Available strategies for truncating conversation context
+ */
+export type TruncationStrategy =
+  | 'oldest-first'
+  | 'relevance'
+  | 'summarize'
+  | 'cluster';

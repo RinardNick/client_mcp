@@ -34,6 +34,9 @@ import {
   getSummarizationMetrics,
 } from './conversation-summarization';
 import { checkAndTriggerSummarization } from './dynamic-summarization';
+import { relevancePruning } from './relevance-pruning';
+import { truncateBySummarization } from './conversation-summarization';
+import { handleClusterTruncation } from './message-clustering';
 
 // Note: Both of these interfaces are now imported from types.ts
 // So we don't need to re-declare them here
@@ -1736,7 +1739,9 @@ export class SessionManager {
   }
 
   /**
-   * Apply basic context optimization based on settings
+   * Optimizes the context window for a session, implementing context management strategies
+   * @param sessionId - ID of the session to optimize
+   * @returns The optimized session with updated messages and metrics
    */
   async optimizeContext(sessionId: string): Promise<TokenMetrics> {
     const session = this.getSession(sessionId);
@@ -1769,6 +1774,16 @@ export class SessionManager {
     } else if (session.contextSettings.truncationStrategy === 'oldest-first') {
       // Use traditional oldest-first truncation
       this.truncateOldestMessages(session);
+    } else if (session.contextSettings.truncationStrategy === 'cluster') {
+      // Use message clustering for optimization
+      const targetTokens = Math.floor(
+        (session.contextSettings?.maxTokenLimit ||
+          getContextLimit(session.config.model)) * 0.7
+      );
+
+      // Apply cluster-based truncation
+      session.messages = handleClusterTruncation(session, targetTokens);
+      console.log(`[SESSION] Applied cluster-based message truncation`);
     }
 
     // Update token metrics after optimization
@@ -1781,11 +1796,13 @@ export class SessionManager {
    * @param session The chat session to optimize
    */
   public async truncateBySummarization(
-    session: ChatSession
-  ): Promise<TokenMetrics> {
+    sessionId: string,
+    targetTokens: number
+  ): Promise<ChatMessage[]> {
     console.log(`[SESSION] Using conversation summarization strategy`);
 
     // Get the current token usage
+    const session = this.getSession(sessionId);
     const totalTokens = session.messages.reduce(
       (sum, msg) => sum + (msg.tokens || 0),
       0
@@ -1796,18 +1813,19 @@ export class SessionManager {
       this.getModelContextLimit(session.config.model);
 
     // Target 70% of max tokens to leave room for new messages
-    const targetTokens = Math.floor(maxTokens * 0.7);
+    const targetPercent = 0.7;
+    const targetTokensPercent = Math.floor(maxTokens * targetPercent);
 
     // Skip if we're already below target
-    if (totalTokens <= targetTokens) {
+    if (totalTokens <= targetTokensPercent) {
       console.log(
-        `[SESSION] Skipping summarization: ${totalTokens} tokens already under target ${targetTokens}`
+        `[SESSION] Skipping summarization: ${totalTokens} tokens already under target ${targetTokensPercent}`
       );
-      return this.getSessionTokenUsage(session.id);
+      return session.messages;
     }
 
     // Apply conversation summarization
-    const summarizationResult = await summarizeConversation(session.id, this);
+    const summarizationResult = await summarizeConversation(sessionId, this);
 
     // If no summaries were created or no tokens saved, fall back to relevance-based pruning
     if (
@@ -1818,7 +1836,7 @@ export class SessionManager {
         `[SESSION] No effective summaries created, falling back to relevance-based pruning`
       );
       this.truncateByRelevance(session);
-      return this.updateTokenMetrics(session.id);
+      return session.messages;
     }
 
     // Replace the original messages with their summaries
@@ -1838,28 +1856,34 @@ export class SessionManager {
     }
 
     // Filter out the original messages that were summarized
-    session.messages = session.messages.filter(
+    const prunedMessages = session.messages.filter(
       msg => !msg.id || !messagesToRemove.has(msg.id)
     );
 
     // Add the summary messages
-    for (const summaryMsg of summaryMessages) {
-      session.messages.push(summaryMsg);
-    }
+    const optimizedMessages = [...prunedMessages, ...summaryMessages];
 
     // Sort messages by timestamp to maintain chronological order
-    session.messages.sort((a, b) => {
+    optimizedMessages.sort((a, b) => {
       const timeA = a.timestamp?.getTime() || 0;
       const timeB = b.timestamp?.getTime() || 0;
       return timeA - timeB;
     });
 
+    // Limit to target tokens
+    const finalMessages = optimizedMessages.slice(0, targetTokens);
+
     console.log(
       `[SESSION] Summarization: Replaced ${messagesToRemove.size} messages with ${summaryMessages.length} summaries, saving ${summarizationResult.tokensSaved} tokens`
     );
 
-    // Update token metrics after optimization
-    return this.updateTokenMetrics(session.id);
+    // Update session messages
+    session.messages = finalMessages;
+
+    // Recalculate token metrics after optimization
+    const updatedMetrics = this.updateTokenMetrics(sessionId);
+
+    return finalMessages;
   }
 
   /**

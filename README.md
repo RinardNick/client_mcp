@@ -875,6 +875,170 @@ const customTool = toolAdapter.adaptToolForProvider(
 );
 ```
 
+## Tool Capability Management
+
+The client includes a capability manager that handles differences in tool support between providers. This ensures tools work correctly when switching between providers with different capabilities:
+
+```typescript
+import { ToolCapabilityManager, MCPTool } from '@rinardnick/client_mcp';
+
+// Create a capability manager
+const capabilityManager = new ToolCapabilityManager();
+
+// Define a complex tool
+const complexTool: MCPTool = {
+  name: 'complex_query',
+  description: 'Execute a complex database query',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string' },
+      filters: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            field: { type: 'string' },
+            operator: {
+              type: 'string',
+              enum: ['equals', 'contains', 'gt', 'lt'],
+            },
+            value: { type: 'string' },
+          },
+        },
+      },
+      options: {
+        type: 'object',
+        properties: {
+          sort: { type: 'string' },
+          limit: { type: 'number' },
+        },
+      },
+    },
+  },
+};
+
+// Check tool compatibility with a provider
+const compatibility = capabilityManager.checkToolSupport(complexTool, 'grok');
+
+if (!compatibility.supported) {
+  console.log('Tool not fully supported by Grok:');
+  for (const issue of compatibility.unsupportedFeatures) {
+    console.log(`- ${issue.severity}: ${issue.message} at ${issue.location}`);
+  }
+}
+
+// Simplify the tool to work with a provider that has limitations
+const simplifiedTool = capabilityManager.simplifyToolForProvider(
+  complexTool,
+  'limited_provider'
+);
+
+// Get warnings about simplifications made
+const warnings = capabilityManager.getSimplificationWarnings(
+  complexTool,
+  'limited_provider'
+);
+for (const warning of warnings) {
+  console.log(`${warning.severity}: ${warning.message}`);
+}
+```
+
+### Creating Multi-Provider Compatible Tools
+
+You can create tools that work with multiple providers by finding common capabilities:
+
+```typescript
+// Create a tool compatible with multiple providers
+const multiProviderTool = capabilityManager.createMultiProviderCompatibleTool(
+  complexTool,
+  ['anthropic', 'openai', 'grok']
+);
+
+// This tool will work with all specified providers
+const anthropicSupport = capabilityManager.checkToolSupport(
+  multiProviderTool,
+  'anthropic'
+);
+const openaiSupport = capabilityManager.checkToolSupport(
+  multiProviderTool,
+  'openai'
+);
+const grokSupport = capabilityManager.checkToolSupport(
+  multiProviderTool,
+  'grok'
+);
+
+console.log(`Compatible with Anthropic: ${anthropicSupport.supported}`);
+console.log(`Compatible with OpenAI: ${openaiSupport.supported}`);
+console.log(`Compatible with Grok: ${grokSupport.supported}`);
+```
+
+### Planning Tool Migration Between Providers
+
+When switching providers, you can create a migration plan for your tools:
+
+```typescript
+// Create a migration plan for tools when switching providers
+const migrationPlan = capabilityManager.createToolMigrationPlan(
+  [tool1, tool2, tool3],
+  'anthropic',
+  'openai'
+);
+
+console.log(
+  `${migrationPlan.compatibleTools.length} tools are compatible without changes`
+);
+console.log(
+  `${migrationPlan.adaptedTools.length} tools were adapted to work with the target provider`
+);
+console.log(
+  `${migrationPlan.incompatibleTools.length} tools cannot be used with the target provider`
+);
+
+// Apply recommendations
+for (const recommendation of migrationPlan.recommendations) {
+  console.log(`- ${recommendation}`);
+}
+```
+
+### Custom Capability Definitions
+
+You can register custom capabilities for providers or create custom capability checks:
+
+```typescript
+// Register provider-specific capabilities
+capabilityManager.registerProviderCapabilities('custom_provider', {
+  maxNestingDepth: 2,
+  supportedTypes: ['string', 'number', 'boolean'],
+  supportsEnums: false,
+  supportsArrays: true,
+  maxProperties: 10,
+});
+
+// Register a custom capability check
+capabilityManager.registerCapabilityHandler(
+  'special_feature',
+  (tool, provider) => {
+    // Your custom logic to check compatibility
+    if (tool.name.includes('special') && provider === 'limited_provider') {
+      return {
+        supported: false,
+        unsupportedFeatures: [
+          {
+            feature: 'special_feature',
+            location: 'tool.name',
+            severity: 'warning',
+            message: 'Special tools not supported by this provider',
+          },
+        ],
+      };
+    }
+    return { supported: true, unsupportedFeatures: [] };
+  }
+);
+```
+
 ##### Conversation Summarization
 
 The summarization strategy uses the LLM to create concise summaries of message groups:

@@ -1,5 +1,58 @@
 # Changes
 
+## 1.4.0 - Tool Capability Management
+
+### Changes
+
+- Added `ToolCapabilityManager` class for handling differences in tool capabilities between providers
+- Implemented detection of incompatible tool features between providers
+- Added automatic simplification of complex tools to work with limited providers
+- Implemented migration planning when moving tools between providers with different capabilities
+
+### Implementation Details
+
+- Created `src/llm/tool-capability-manager.ts` with the `ToolCapabilityManager` class
+- Added comprehensive test suite in `src/llm/tool-capability-manager.test.ts`
+- Implemented capability profiles for Anthropic, OpenAI, and Grok providers
+- Added support for custom capability checks and provider definitions
+- Created simplification mechanisms that maintain tool functionality when possible
+- Implemented migration planning with actionable recommendations
+
+### How to Verify
+
+```typescript
+import { ToolCapabilityManager, MCPTool } from '@rinardnick/client_mcp';
+
+// Create a capability manager
+const capabilityManager = new ToolCapabilityManager();
+
+// Check tool compatibility with a provider
+const compatibility = capabilityManager.checkToolSupport(complexTool, 'grok');
+if (!compatibility.supported) {
+  console.log('Incompatible features detected');
+}
+
+// Simplify a tool for a provider with limitations
+const simplifiedTool = capabilityManager.simplifyToolForProvider(
+  complexTool,
+  'limited_provider'
+);
+
+// Create a migration plan when switching providers
+const migrationPlan = capabilityManager.createToolMigrationPlan(
+  tools,
+  'anthropic',
+  'openai'
+);
+```
+
+### Next Steps
+
+- Integrate the capability manager with the session manager
+- Add automatic tool adaptation during model switching
+- Create UI components to display compatibility warnings
+- Implement best practices documentation for multi-provider tools
+
 ## 1.3.0 - Tool Format Normalization
 
 ### Changes

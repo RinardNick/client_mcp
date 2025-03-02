@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TS-MCP-Client Documentation</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css"
+    />
+    <style>
+      :root {
+        --primary: #6366f1;
+        --primary-hover: #4f46e5;
+        --primary-focus: rgba(99, 102, 241, 0.125);
+        --primary-inverse: #fff;
+      }
+
+      body > header {
+        background-color: #f9fafb;
+        border-bottom: 1px solid #e5e7eb;
+        padding: 2rem 0;
+      }
+
+      body > main {
+        padding: 2rem 0;
+      }
+
+      body > footer {
+        background-color: #f9fafb;
+        border-top: 1px solid #e5e7eb;
+        padding: 2rem 0;
+        text-align: center;
+      }
+
+      .hero {
+        text-align: center;
+        padding: 4rem 0;
+        background: linear-gradient(135deg, #f0f9ff 0%, #e6f7ff 100%);
+        margin-bottom: 2rem;
+      }
+
+      .hero h1 {
+        font-size: 2.5rem;
+        margin-bottom: 1rem;
+        color: #1e293b;
+      }
+
+      .hero p {
+        font-size: 1.25rem;
+        max-width: 800px;
+        margin: 0 auto;
+        color: #475569;
+      }
+
+      .features article {
+        border-radius: 8px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
+          0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        padding: 2rem;
+        transition: all 0.2s ease;
+        height: 100%;
+      }
+
+      .features article:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+          0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      }
+
+      .features h3 {
+        color: var(--primary);
+        margin-top: 0;
+      }
+
+      .features article a {
+        font-weight: bold;
+      }
+
+      .getting-started {
+        background-color: #f8fafc;
+        padding: 3rem 0;
+        border-radius: 8px;
+        margin: 2rem 0;
+      }
+
+      .code-block {
+        background-color: #1e293b;
+        color: #e2e8f0;
+        border-radius: 8px;
+        padding: 1rem;
+        overflow-x: auto;
+        font-family: 'Fira Code', 'Courier New', Courier, monospace;
+      }
+
+      .code-comment {
+        color: #94a3b8;
+      }
+
+      .version-badge {
+        display: inline-block;
+        background-color: var(--primary);
+        color: white;
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 9999px;
+        margin-left: 0.5rem;
+        vertical-align: middle;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav class="container">
+        <ul>
+          <li>
+            <strong>TS-MCP-Client</strong
+            ><span class="version-badge">v1.2.1</span>
+          </li>
+        </ul>
+        <ul>
+          <li><a href="#getting-started">Getting Started</a></li>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#examples">Examples</a></li>
+          <li><a href="#api">API</a></li>
+          <li>
+            <a href="https://github.com/yourusername/client_mcp" target="_blank"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="container">
+          <h1>TS-MCP-Client</h1>
+          <p>
+            A TypeScript implementation of the Model Context Protocol (MCP)
+            client that manages LLM chat interactions, server lifecycle, and
+            tool invocations with multi-provider support.
+          </p>
+          <p><a href="#getting-started" role="button">Get Started</a></p>
+        </div>
+      </section>
+
+      <section class="container">
+        <div class="grid">
+          <div>
+            <h2>Why TS-MCP-Client?</h2>
+            <p>
+              TS-MCP-Client simplifies the integration of powerful LLM
+              capabilities into your applications by handling complex
+              interactions with LLM providers and tools.
+            </p>
+            <ul>
+              <li>
+                Support for multiple LLM providers (Anthropic, OpenAI, Grok)
+              </li>
+              <li>Tool integration for enhanced AI capabilities</li>
+              <li>Session management and persistence</li>
+              <li>Token optimization and context management</li>
+              <li>Seamless provider switching during conversations</li>
+            </ul>
+          </div>
+          <div>
+            <div class="code-block">
+              <pre>
+import { SessionManager, loadConfig } from '@rinardnick/client_mcp';
+
+// Load configuration
+const config = loadConfig('./config.json');
+
+// Initialize the session manager
+const sessionManager = new SessionManager(config);
+
+// Create a new session
+const sessionId = await sessionManager.createSession();
+
+// Send a message and get response
+const response = await sessionManager.sendMessage(
+  sessionId, 
+  'Hello, how are you today?'
+);
+
+console.log(response.content);</pre
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="features container" id="features">
+        <h2>Key Features</h2>
+        <div class="grid">
+          <article>
+            <h3>Multi-Provider Support</h3>
+            <p>
+              Use Anthropic, OpenAI, Grok, or any other supported LLM provider
+              interchangeably with the same API.
+            </p>
+            <a href="guides/multi-provider.html">Learn more →</a>
+          </article>
+
+          <article>
+            <h3>Model Switching</h3>
+            <p>
+              Switch between models or providers during an active conversation
+              while maintaining context.
+            </p>
+            <a href="guides/provider-switching.html">Learn more →</a>
+          </article>
+
+          <article>
+            <h3>Tool Integration</h3>
+            <p>
+              Easily integrate custom tools that LLMs can use to perform actions
+              or retrieve information.
+            </p>
+            <a href="guides/tool-integration.html">Learn more →</a>
+          </article>
+
+          <article>
+            <h3>Session Management</h3>
+            <p>
+              Manage conversation sessions with persistence, recovery, and
+              lifecycle management.
+            </p>
+            <a href="concepts/sessions.html">Learn more →</a>
+          </article>
+
+          <article>
+            <h3>Token Optimization</h3>
+            <p>
+              Smart token usage with automatic truncation, summarization, and
+              context window management.
+            </p>
+            <a href="guides/token-optimization.html">Learn more →</a>
+          </article>
+
+          <article>
+            <h3>Streaming Support</h3>
+            <p>
+              Real-time streaming responses with thinking states and tool
+              execution updates.
+            </p>
+            <a href="guides/streaming.html">Learn more →</a>
+          </article>
+        </div>
+      </section>
+
+      <section class="getting-started container" id="getting-started">
+        <h2>Getting Started</h2>
+        <div class="grid">
+          <div>
+            <h3>Installation</h3>
+            <div class="code-block">
+              <pre>npm install @rinardnick/client_mcp</pre>
+            </div>
+            <p>Add the package to your project using npm or yarn.</p>
+          </div>
+          <div>
+            <h3>Basic Configuration</h3>
+            <div class="code-block">
+              <pre>
+{
+  "providers": {
+    "anthropic": {
+      "api_key": "your-anthropic-api-key",
+      "default_model": "claude-3-sonnet-20240229"
+    }
+  },
+  "default_provider": "anthropic"
+}</pre
+              >
+            </div>
+            <p>Create a configuration file with your provider API keys.</p>
+          </div>
+        </div>
+        <p>
+          <a href="getting-started/installation.html" role="button"
+            >Full Installation Guide</a
+          >
+        </p>
+      </section>
+
+      <section class="container" id="examples">
+        <h2>Examples</h2>
+        <div class="grid">
+          <div>
+            <h3>Basic Conversation</h3>
+            <div class="code-block">
+              <pre>
+// Create a session
+const sessionId = await sessionManager.createSession();
+
+// Send messages
+await sessionManager.sendMessage(
+  sessionId, 
+  "What is the capital of France?"
+);
+
+// Close when done
+await sessionManager.closeSession(sessionId);</pre
+              >
+            </div>
+          </div>
+          <div>
+            <h3>Streaming Response</h3>
+            <div class="code-block">
+              <pre>
+const stream = await sessionManager.sendMessageStream(
+  sessionId, 
+  "Write a short story about a robot"
+);
+
+for await (const chunk of stream) {
+  if (chunk.type === 'content') {
+    process.stdout.write(chunk.content);
+  }
+}</pre
+              >
+            </div>
+          </div>
+        </div>
+        <p>
+          <a href="examples/index.html" role="button" class="secondary"
+            >Browse All Examples</a
+          >
+        </p>
+      </section>
+
+      <section class="container" id="api">
+        <h2>API Reference</h2>
+        <div class="grid">
+          <div>
+            <h3>Core Components</h3>
+            <ul>
+              <li><a href="api/session-manager.html">SessionManager</a></li>
+              <li><a href="api/providers.html">LLM Providers</a></li>
+              <li><a href="api/tool-adapter.html">Tool Adapter</a></li>
+              <li>
+                <a href="api/compatibility.html">Provider Compatibility</a>
+              </li>
+            </ul>
+          </div>
+          <div>
+            <h3>Configuration</h3>
+            <ul>
+              <li>
+                <a href="api/configuration.html">Configuration Options</a>
+              </li>
+              <li><a href="api/session-options.html">Session Options</a></li>
+              <li>
+                <a href="api/provider-config.html">Provider Configuration</a>
+              </li>
+              <li><a href="api/server-config.html">Server Configuration</a></li>
+            </ul>
+          </div>
+        </div>
+        <p>
+          <a href="api/index.html" role="button" class="secondary"
+            >Complete API Reference</a
+          >
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <div class="container">
+        <p>&copy; 2024 TS-MCP-Client Documentation. Version 1.2.1.</p>
+      </div>
+    </footer>
+  </body>
+</html>

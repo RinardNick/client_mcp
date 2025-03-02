@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Installation - TS-MCP-Client Documentation</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css"
+    />
+    <style>
+      :root {
+        --primary: #6366f1;
+        --primary-hover: #4f46e5;
+        --primary-focus: rgba(99, 102, 241, 0.125);
+        --primary-inverse: #fff;
+      }
+
+      body > header {
+        background-color: #f9fafb;
+        border-bottom: 1px solid #e5e7eb;
+        padding: 2rem 0;
+      }
+
+      body > main {
+        padding: 2rem 0;
+      }
+
+      body > footer {
+        background-color: #f9fafb;
+        border-top: 1px solid #e5e7eb;
+        padding: 2rem 0;
+        text-align: center;
+      }
+
+      .version-badge {
+        display: inline-block;
+        background-color: var(--primary);
+        color: white;
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 9999px;
+        margin-left: 0.5rem;
+        vertical-align: middle;
+      }
+
+      .breadcrumb {
+        margin-bottom: 2rem;
+        color: #6b7280;
+      }
+
+      .breadcrumb a {
+        color: #4b5563;
+        text-decoration: none;
+      }
+
+      .breadcrumb a:hover {
+        text-decoration: underline;
+      }
+
+      .code-block {
+        background-color: #1e293b;
+        color: #e2e8f0;
+        border-radius: 8px;
+        padding: 1rem;
+        overflow-x: auto;
+        font-family: 'Fira Code', 'Courier New', Courier, monospace;
+      }
+
+      .next-steps {
+        background-color: #f8fafc;
+        padding: 2rem;
+        border-radius: 8px;
+        margin: 2rem 0;
+      }
+
+      .docs-nav {
+        position: sticky;
+        top: 20px;
+      }
+
+      .docs-nav ul {
+        list-style: none;
+        padding: 0;
+      }
+
+      .docs-nav li {
+        margin-bottom: 0.5rem;
+      }
+
+      .docs-nav a {
+        color: #4b5563;
+        text-decoration: none;
+        display: block;
+        padding: 0.5rem;
+        border-radius: 4px;
+      }
+
+      .docs-nav a:hover {
+        background-color: #f3f4f6;
+      }
+
+      .docs-nav a.active {
+        background-color: var(--primary-focus);
+        color: var(--primary);
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav class="container">
+        <ul>
+          <li>
+            <a href="../index.html"
+              ><strong>TS-MCP-Client</strong
+              ><span class="version-badge">v1.2.1</span></a
+            >
+          </li>
+        </ul>
+        <ul>
+          <li><a href="../index.html#getting-started">Getting Started</a></li>
+          <li><a href="../index.html#features">Features</a></li>
+          <li><a href="../index.html#examples">Examples</a></li>
+          <li><a href="../index.html#api">API</a></li>
+          <li>
+            <a href="https://github.com/yourusername/client_mcp" target="_blank"
+              >GitHub</a
+            >
+          </li>
+        </ul>
+      </nav>
+    </header>
+
+    <main class="container">
+      <div class="breadcrumb">
+        <a href="../index.html">Home</a> /
+        <a href="../index.html#getting-started">Getting Started</a> /
+        Installation
+      </div>
+
+      <div class="grid">
+        <div class="docs-nav">
+          <h4>Getting Started</h4>
+          <ul>
+            <li><a href="installation.html" class="active">Installation</a></li>
+            <li><a href="configuration.html">Configuration</a></li>
+            <li><a href="first-conversation.html">First Conversation</a></li>
+            <li><a href="common-patterns.html">Common Patterns</a></li>
+          </ul>
+
+          <h4>Next Steps</h4>
+          <ul>
+            <li>
+              <a href="../guides/tool-integration.html">Tool Integration</a>
+            </li>
+            <li><a href="../guides/multi-provider.html">Multi-Provider</a></li>
+            <li><a href="../concepts/architecture.html">Architecture</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <article>
+            <h1>Installation</h1>
+
+            <p>
+              This guide will help you install and set up the TS-MCP-Client in
+              your project.
+            </p>
+
+            <h2>Prerequisites</h2>
+
+            <p>Before installing the TS-MCP-Client, make sure you have:</p>
+
+            <ul>
+              <li>Node.js (version 16 or higher)</li>
+              <li>npm or yarn</li>
+              <li>TypeScript (for TypeScript projects)</li>
+              <li>
+                API keys for at least one LLM provider (Anthropic, OpenAI, etc.)
+              </li>
+            </ul>
+
+            <h2>Installation Steps</h2>
+
+            <h3>1. Install the package</h3>
+
+            <p>Add the package to your project using npm:</p>
+
+            <div class="code-block">
+              <pre>npm install @rinardnick/client_mcp</pre>
+            </div>
+
+            <p>Or using yarn:</p>
+
+            <div class="code-block">
+              <pre>yarn add @rinardnick/client_mcp</pre>
+            </div>
+
+            <h3>2. Create a configuration file</h3>
+
+            <p>
+              Create a configuration file (e.g., <code>mcp-config.json</code>)
+              with your provider information:
+            </p>
+
+            <div class="code-block">
+              <pre>
+{
+  "providers": {
+    "anthropic": {
+      "api_key": "your-anthropic-api-key",
+      "default_model": "claude-3-sonnet-20240229",
+      "system_prompt": "You are a helpful AI assistant..."
+    }
+  },
+  "default_provider": "anthropic"
+}</pre
+              >
+            </div>
+
+            <p>
+              For security reasons, it's recommended to use environment
+              variables for API keys:
+            </p>
+
+            <div class="code-block">
+              <pre>
+{
+  "providers": {
+    "anthropic": {
+      "api_key": "${ANTHROPIC_API_KEY}",
+      "default_model": "claude-3-sonnet-20240229",
+      "system_prompt": "You are a helpful AI assistant..."
+    }
+  },
+  "default_provider": "anthropic"
+}</pre
+              >
+            </div>
+
+            <h3>3. Import and initialize the client</h3>
+
+            <p>
+              Create a new file (e.g., <code>client.ts</code> or
+              <code>client.js</code>) to initialize the client:
+            </p>
+
+            <div class="code-block">
+              <pre>
+import { SessionManager, loadConfig } from '@rinardnick/client_mcp';
+import path from 'path';
+
+// Load and process configuration
+const config = loadConfig(path.resolve('./mcp-config.json'));
+
+// Initialize the session manager
+export const sessionManager = new SessionManager(config);
+
+// Export a function to create a new session
+export async function createSession() {
+  return await sessionManager.createSession();
+}</pre
+              >
+            </div>
+
+            <h3>4. Verify installation</h3>
+
+            <p>Create a simple test script to verify the installation:</p>
+
+            <div class="code-block">
+              <pre>
+import { sessionManager, createSession } from './client';
+
+async function testClient() {
+  try {
+    // Create a new session
+    const sessionId = await createSession();
+    console.log('Session created:', sessionId);
+    
+    // Send a test message
+    const response = await sessionManager.sendMessage(
+      sessionId, 
+      'Hello, can you confirm this is working?'
+    );
+    
+    console.log('Response:', response.content);
+    
+    // Close the session
+    await sessionManager.closeSession(sessionId);
+    console.log('Session closed successfully');
+  } catch (error) {
+    console.error('Error testing client:', error);
+  }
+}
+
+testClient();</pre
+              >
+            </div>
+
+            <p>Run the test script:</p>
+
+            <div class="code-block">
+              <pre>node -r ts-node/register test.ts</pre>
+            </div>
+
+            <div class="next-steps">
+              <h3>Next Steps</h3>
+              <p>With the TS-MCP-Client successfully installed, you can now:</p>
+              <ul>
+                <li>
+                  <a href="configuration.html"
+                    >Learn about advanced configuration options</a
+                  >
+                </li>
+                <li>
+                  <a href="first-conversation.html"
+                    >Create your first conversation</a
+                  >
+                </li>
+                <li>
+                  <a href="../guides/tool-integration.html"
+                    >Add tool capabilities to your AI</a
+                  >
+                </li>
+              </ul>
+            </div>
+
+            <div class="grid">
+              <div></div>
+              <div style="text-align: right">
+                <a href="configuration.html" role="button"
+                  >Next: Configuration →</a
+                >
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <div class="container">
+        <p>&copy; 2024 TS-MCP-Client Documentation. Version 1.2.1.</p>
+      </div>
+    </footer>
+  </body>
+</html>

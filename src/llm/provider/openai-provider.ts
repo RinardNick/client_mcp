@@ -263,97 +263,124 @@ export class OpenAIProvider implements LLMProviderInterface {
     }
 
     try {
-      // Variables for tracking the current tool call being built
-      let currentToolCall: any = null;
-      let currentToolCallIndex: number | null = null;
-      let currentFunctionArguments = '';
-
       // Create the stream properly using the OpenAI SDK's stream method
       const stream = await this.client.chat.completions.create(streamApiParams);
 
       // Process the stream - correct method for OpenAI's SDK
-      for await (const chunk of stream) {
+      try {
+        // Use the proper stream handling method based on the OpenAI SDK version
+        // Handle different versions of the OpenAI SDK and their stream implementations
+        // @ts-ignore - Ignore TypeScript error as we're checking at runtime
+        if (stream.on && typeof stream.on === 'function') {
+          // Stream using event emitter pattern (older versions of SDK)
+          return this.handleStreamWithEventEmitter(stream);
+        } else {
+          // Modern OpenAI SDK with async iterator
+          // @ts-ignore - We're handling the type checking at runtime
+          for await (const chunk of stream) {
+            // Handle text content
+            if (chunk.choices[0]?.delta?.content) {
+              yield {
+                type: 'content',
+                content: chunk.choices[0].delta.content,
+              };
+            }
+
+            // Handle tool calls
+            if (chunk.choices[0]?.delta?.tool_calls?.length > 0) {
+              const toolCall = chunk.choices[0].delta.tool_calls[0];
+              if (toolCall.function?.name && toolCall.function?.arguments) {
+                try {
+                  const args = JSON.parse(toolCall.function.arguments || '{}');
+                  yield {
+                    type: 'tool_call',
+                    toolCall: {
+                      name: toolCall.function.name,
+                      parameters: args,
+                    },
+                  };
+                } catch (error) {
+                  console.error(
+                    '[OPENAI] Failed to parse tool arguments:',
+                    error
+                  );
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[OPENAI] Error processing stream:', error);
+        yield { type: 'error', error: 'Error processing OpenAI stream' };
+      }
+
+      // Signal end of stream
+      yield { type: 'done' };
+    } catch (error) {
+      console.error('[OPENAI] Error processing stream:', error);
+      yield { type: 'error', error: 'Error processing OpenAI stream' };
+    }
+  }
+
+  // Helper method to handle streams with event emitter pattern
+  private async *handleStreamWithEventEmitter(
+    stream: any
+  ): AsyncGenerator<LLMResponseChunk> {
+    const chunks: LLMResponseChunk[] = [];
+
+    return new Promise<AsyncGenerator<LLMResponseChunk>>(async resolve => {
+      // Set up event handlers
+      stream.on('data', (chunk: any) => {
         // Handle text content
         if (chunk.choices[0]?.delta?.content) {
-          yield { type: 'content', content: chunk.choices[0].delta.content };
+          chunks.push({
+            type: 'content',
+            content: chunk.choices[0].delta.content,
+          });
         }
 
-        // Handle tool call start
-        if (
-          chunk.choices[0]?.delta?.tool_calls &&
-          chunk.choices[0].delta.tool_calls.length > 0
-        ) {
-          const toolCallDelta = chunk.choices[0].delta.tool_calls[0];
-
-          // If we have a tool call index, this is a new tool call
-          if (
-            toolCallDelta.index !== undefined &&
-            (currentToolCallIndex === null ||
-              toolCallDelta.index !== currentToolCallIndex)
-          ) {
-            currentToolCallIndex = toolCallDelta.index;
-            currentToolCall = {
-              function: { name: '', arguments: '' },
-            };
-          }
-
-          // Update tool call information
-          if (toolCallDelta.function?.name) {
-            if (currentToolCall) {
-              currentToolCall.function.name = toolCallDelta.function.name;
-            }
-          }
-
-          // Add function arguments
-          if (toolCallDelta.function?.arguments) {
-            currentFunctionArguments += toolCallDelta.function.arguments;
-            if (currentToolCall) {
-              currentToolCall.function.arguments = currentFunctionArguments;
+        // Handle tool calls
+        if (chunk.choices[0]?.delta?.tool_calls?.length > 0) {
+          const toolCall = chunk.choices[0].delta.tool_calls[0];
+          if (toolCall.function?.name && toolCall.function?.arguments) {
+            try {
+              const args = JSON.parse(toolCall.function.arguments || '{}');
+              chunks.push({
+                type: 'tool_call',
+                toolCall: {
+                  name: toolCall.function.name,
+                  parameters: args,
+                },
+              });
+            } catch (error) {
+              console.error('[OPENAI] Failed to parse tool arguments:', error);
             }
           }
         }
+      });
 
-        // Handle finish reason - emit tool call if complete
-        if (
-          chunk.choices[0]?.finish_reason === 'tool_calls' &&
-          currentToolCall &&
-          currentToolCall.function.name
-        ) {
-          try {
-            const parameters = JSON.parse(currentToolCall.function.arguments);
-            yield {
-              type: 'tool_call',
-              toolCall: {
-                name: currentToolCall.function.name,
-                parameters: parameters,
-              },
-            };
+      stream.on('end', () => {
+        chunks.push({ type: 'done' });
+        resolve(
+          (async function* () {
+            for (const chunk of chunks) {
+              yield chunk;
+            }
+          })()
+        );
+      });
 
-            // Reset tracking variables
-            currentToolCall = null;
-            currentToolCallIndex = null;
-            currentFunctionArguments = '';
-          } catch (error) {
-            console.error('Error parsing function arguments:', error);
-            yield {
-              type: 'error',
-              error: `Error parsing function arguments: ${error}`,
-            };
-          }
-        }
-
-        // Handle finish reason - complete
-        if (chunk.choices[0]?.finish_reason === 'stop') {
-          yield { type: 'done' };
-        }
-      }
-    } catch (error) {
-      yield {
-        type: 'error',
-        error: `OpenAI streaming error: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      };
-    }
+      stream.on('error', (error: Error) => {
+        console.error('[OPENAI] Stream error:', error);
+        chunks.push({ type: 'error', error: error.message });
+        resolve(
+          (async function* () {
+            for (const chunk of chunks) {
+              yield chunk;
+            }
+          })()
+        );
+      });
+    });
   }
 }

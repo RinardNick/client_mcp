@@ -11,9 +11,19 @@ const mockAnthropicInstance = {
       // Determine if this is the initial request or a continuation after tool execution
       // by checking if there's a tool result in the messages
       const messages = options.messages || [];
-      const hasToolResult = messages.some(
-        (m: any) => m.isToolResult || m.tool_result
-      );
+      const hasToolResult = messages.some((m: any) => {
+        // Check for old format first
+        if (m.isToolResult) return true;
+
+        // Check for new format with content array
+        if (
+          Array.isArray(m.content) &&
+          m.content.some((c: any) => c.type === 'tool_result')
+        )
+          return true;
+
+        return false;
+      });
 
       if (options.stream) {
         if (hasToolResult) {
@@ -253,11 +263,153 @@ describe('Tool Continuation', () => {
       },
     ];
     session.serverClients.set('filesystem', mockMCPClient as any);
+    console.log('✓ Session tools and mock client set up');
+
+    // Override the mock to be more verbose for debugging
+    mockAnthropicInstance.messages.create.mockImplementationOnce(options => {
+      console.log('MOCK CALL 1: Initial stream creation');
+      console.log(
+        'Options:',
+        JSON.stringify(
+          {
+            model: options.model,
+            stream: options.stream,
+            messageCount: options.messages?.length,
+          },
+          null,
+          2
+        )
+      );
+
+      return {
+        [Symbol.asyncIterator]: async function* () {
+          console.log('  Yielding initial content start');
+          yield {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'text', text: '' },
+          };
+
+          console.log('  Yielding initial text');
+          yield {
+            type: 'content_block_delta',
+            index: 0,
+            delta: {
+              type: 'text_delta',
+              text: 'Let me check the files for you.',
+            },
+          };
+
+          console.log('  Yielding content block stop');
+          yield {
+            type: 'content_block_stop',
+            index: 0,
+          };
+
+          console.log('  Yielding tool call start');
+          yield {
+            type: 'content_block_start',
+            index: 1,
+            content_block: {
+              type: 'tool_use',
+              id: 'tool_123',
+              name: 'list-files',
+              input: { path: '.' },
+            },
+          };
+
+          console.log('  Yielding tool call stop');
+          yield {
+            type: 'content_block_stop',
+            index: 1,
+          };
+
+          console.log('  Yielding message stop');
+          yield {
+            type: 'message_stop',
+          };
+        },
+      };
+    });
+
+    // For continuation call
+    mockAnthropicInstance.messages.create.mockImplementationOnce(options => {
+      console.log('MOCK CALL 2: Continuation stream creation');
+      console.log(
+        'Options:',
+        JSON.stringify(
+          {
+            model: options.model,
+            stream: options.stream,
+            messageCount: options.messages?.length,
+            hasToolResult: options.messages?.some(
+              (m: any) =>
+                Array.isArray(m.content) &&
+                m.content.some((c: any) => c.type === 'tool_result')
+            ),
+          },
+          null,
+          2
+        )
+      );
+
+      return {
+        [Symbol.asyncIterator]: async function* () {
+          console.log('  Yielding continuation content start');
+          yield {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'text', text: '' },
+          };
+
+          console.log('  Yielding continuation text 1');
+          yield {
+            type: 'content_block_delta',
+            index: 0,
+            delta: {
+              type: 'text_delta',
+              text: 'Based on the tool results, I found these files:',
+            },
+          };
+
+          console.log('  Yielding continuation text 2');
+          yield {
+            type: 'content_block_delta',
+            index: 0,
+            delta: {
+              type: 'text_delta',
+              text: ' file1.txt and file2.txt',
+            },
+          };
+
+          console.log('  Yielding content block stop');
+          yield {
+            type: 'content_block_stop',
+            index: 0,
+          };
+
+          console.log('  Yielding message stop');
+          yield {
+            type: 'message_stop',
+          };
+        },
+      };
+    });
 
     // Create tracking variables for our test
     const events: { type: string; content?: string }[] = [];
     let seenToolResult = false;
     let seenContentAfterToolResult = false;
+
+    // Add debug log to see messages format
+    console.log('\nInitial API call messages:');
+    const initialCallMessages = session.messages.map(m => ({
+      role: m.role,
+      content:
+        typeof m.content === 'string' ? m.content.substring(0, 20) : m.content,
+      isToolResult: m.isToolResult,
+    }));
+    console.log(JSON.stringify(initialCallMessages, null, 2));
 
     // Send a message and collect all the chunks
     console.log('\nStreaming response chunks:');
@@ -285,6 +437,16 @@ describe('Tool Continuation', () => {
         console.log('✓ Content received after tool result');
       }
     }
+
+    // Enhanced debug logging
+    console.log('\nMessages after streaming:');
+    const finalMessages = session.messages.map(m => ({
+      role: m.role,
+      content:
+        typeof m.content === 'string' ? m.content.substring(0, 20) : m.content,
+      isToolResult: m.isToolResult,
+    }));
+    console.log(JSON.stringify(finalMessages, null, 2));
 
     // Print summary
     console.log('\nSummary:');

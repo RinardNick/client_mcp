@@ -843,26 +843,53 @@ export class SessionManager {
                         content: resultStr,
                         isToolResult: true,
                         timestamp: new Date(),
+                        // Add a tool ID to track the association
+                        toolId: `tool_${Date.now()}_${Math.random()
+                          .toString(36)
+                          .substring(2, 9)}`,
                       };
                       session.messages.push(toolResultMessage);
 
+                      console.log(
+                        '[SESSION_DEBUG] About to yield tool_result:',
+                        resultStr.substring(0, 30)
+                      );
                       // Yield the tool result
                       yield {
                         type: 'tool_result',
                         content: resultStr,
                       };
+                      console.log('[SESSION_DEBUG] After yielding tool_result');
 
                       // Continue conversation with a new API call that includes the tool result
                       // Create a new stream to get the LLM's response to the tool result
                       const continuationApiParams = {
                         model: session.config.model,
                         max_tokens: 1024,
-                        messages: session.messages.map(msg => ({
-                          role: msg.role === 'system' ? 'user' : msg.role,
-                          content: msg.content,
-                          // Include tool_result flag to help model understand conversation context
-                          ...(msg.isToolResult && { tool_result: true }),
-                        })),
+                        messages: session.messages.map(msg => {
+                          if (msg.isToolResult) {
+                            // Convert tool result to proper tool_result format
+                            return {
+                              role: 'user' as const,
+                              content: [
+                                {
+                                  type: 'tool_result' as const,
+                                  content: msg.content,
+                                  tool_use_id:
+                                    msg.toolId ||
+                                    `tool_${Date.now()}_${Math.random()
+                                      .toString(36)
+                                      .substring(2, 9)}`,
+                                },
+                              ],
+                            };
+                          } else {
+                            return {
+                              role: msg.role === 'system' ? 'user' : msg.role,
+                              content: msg.content,
+                            };
+                          }
+                        }),
                         tools: tools,
                         stream: true as const,
                       };
@@ -1041,26 +1068,53 @@ export class SessionManager {
                       content: resultStr,
                       isToolResult: true,
                       timestamp: new Date(),
+                      // Add a tool ID to track the association
+                      toolId: `tool_${Date.now()}_${Math.random()
+                        .toString(36)
+                        .substring(2, 9)}`,
                     };
                     session.messages.push(toolResultMessage);
 
+                    console.log(
+                      '[SESSION_DEBUG] About to yield tool_result:',
+                      resultStr.substring(0, 30)
+                    );
                     // Yield the tool result
                     yield {
                       type: 'tool_result',
                       content: resultStr,
                     };
+                    console.log('[SESSION_DEBUG] After yielding tool_result');
 
                     // Continue conversation with a new API call that includes the tool result
                     // Create a new stream to get the LLM's response to the tool result
                     const continuationApiParams = {
                       model: session.config.model,
                       max_tokens: 1024,
-                      messages: session.messages.map(msg => ({
-                        role: msg.role === 'system' ? 'user' : msg.role,
-                        content: msg.content,
-                        // Include tool results flag to help model understand conversation context
-                        ...(msg.isToolResult && { tool_result: true }),
-                      })),
+                      messages: session.messages.map(msg => {
+                        if (msg.isToolResult) {
+                          // Convert tool result to proper tool_result format
+                          return {
+                            role: 'user' as const,
+                            content: [
+                              {
+                                type: 'tool_result' as const,
+                                content: msg.content,
+                                tool_use_id:
+                                  msg.toolId ||
+                                  `tool_${Date.now()}_${Math.random()
+                                    .toString(36)
+                                    .substring(2, 9)}`,
+                              },
+                            ],
+                          };
+                        } else {
+                          return {
+                            role: msg.role === 'system' ? 'user' : msg.role,
+                            content: msg.content,
+                          };
+                        }
+                      }),
                       tools: tools,
                       stream: true as const,
                     };
@@ -1275,25 +1329,52 @@ export class SessionManager {
                   content: resultStr,
                   isToolResult: true,
                   timestamp: new Date(),
+                  // Add a tool ID to track the association
+                  toolId: `tool_${Date.now()}_${Math.random()
+                    .toString(36)
+                    .substring(2, 9)}`,
                 };
                 session.messages.push(toolResultMessage);
 
+                console.log(
+                  '[SESSION_DEBUG] About to yield tool_result:',
+                  resultStr.substring(0, 30)
+                );
                 // Yield the tool result
                 yield {
                   type: 'tool_result',
                   content: resultStr,
                 };
+                console.log('[SESSION_DEBUG] After yielding tool_result');
 
                 // Continue conversation with a new API call that includes the tool result
                 const continuationApiParams = {
                   model: session.config.model,
                   max_tokens: 1024,
-                  messages: session.messages.map(msg => ({
-                    role: msg.role === 'system' ? 'user' : msg.role,
-                    content: msg.content,
-                    // Include tool results flag to help model understand conversation context
-                    ...(msg.isToolResult && { tool_result: true }),
-                  })),
+                  messages: session.messages.map(msg => {
+                    if (msg.isToolResult) {
+                      // Convert tool result to proper tool_result format
+                      return {
+                        role: 'user' as const,
+                        content: [
+                          {
+                            type: 'tool_result' as const,
+                            content: msg.content,
+                            tool_use_id:
+                              msg.toolId ||
+                              `tool_${Date.now()}_${Math.random()
+                                .toString(36)
+                                .substring(2, 9)}`,
+                          },
+                        ],
+                      };
+                    } else {
+                      return {
+                        role: msg.role === 'system' ? 'user' : msg.role,
+                        content: msg.content,
+                      };
+                    }
+                  }),
                   tools: tools,
                   stream: true as const,
                 };

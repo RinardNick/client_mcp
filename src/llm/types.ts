@@ -45,6 +45,50 @@ export interface TokenCost {
 }
 
 /**
+ * Interface representing a summary of a group of messages in a conversation
+ */
+export interface ConversationSummary {
+  /** IDs of messages that were summarized */
+  originalMessages: string[];
+  /** The summarized content */
+  summaryText: string;
+  /** Total tokens in the original messages */
+  originalTokens: number;
+  /** Tokens in the summary */
+  summaryTokens: number;
+  /** Compression ratio (original tokens / summary tokens) */
+  compressionRatio: number;
+  /** When this summary was created */
+  timestamp: Date;
+}
+
+/**
+ * Interface for the result of summarizing a conversation
+ */
+export interface SummarizationResult {
+  /** Array of summaries created */
+  summaries: ConversationSummary[];
+  /** Total number of messages that were processed */
+  messagesProcessed: number;
+  /** Total number of tokens saved through summarization */
+  tokensSaved: number;
+}
+
+/**
+ * Interface for tracking summarization metrics of a session
+ */
+export interface SummarizationMetrics {
+  /** Total number of summaries created */
+  totalSummaries: number;
+  /** Total tokens saved through summarization */
+  totalTokensSaved: number;
+  /** Average compression ratio across all summaries */
+  averageCompressionRatio: number;
+  /** Last time summarization was performed */
+  lastSummarizedAt?: Date;
+}
+
+/**
  * Context optimization settings
  */
 export interface ContextSettings {
@@ -53,6 +97,10 @@ export interface ContextSettings {
   preserveSystemMessages: boolean;
   preserveRecentMessages: number; // Number of recent messages to always keep
   truncationStrategy: 'oldest-first' | 'selective' | 'summarize';
+  /* Message batch size for summarization */
+  summarizationBatchSize?: number;
+  /* Minimum compression ratio to keep summaries */
+  minCompressionRatio?: number;
 }
 
 /**
@@ -103,8 +151,16 @@ export interface ChatMessage {
   toolCall?: ToolCall;
   isToolResult?: boolean;
   toolId?: string; // Add toolId for tool result tracking
+  name?: string;
   tokens?: number; // Track tokens per message
   timestamp?: Date; // When message was created
+  id?: string;
+
+  // Summarization-related properties
+  isSummary?: boolean; // Whether this message is a summary
+  summarizedMessages?: string[]; // IDs of messages this summary replaces
+  compressionRatio?: number; // For summary messages, the compression ratio achieved
+  tokensSaved?: number; // Tokens saved by this summary
 }
 
 export class LLMError extends Error {

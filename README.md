@@ -97,6 +97,29 @@ const session = await sessionManager.initializeSession(config);
 const sessionId = session.id;
 ```
 
+### Using Shared Servers
+
+For improved resource utilization, you can enable shared servers across multiple sessions:
+
+```typescript
+// Initialize session manager with shared servers enabled
+const sessionManager = new SessionManager({ useSharedServers: true });
+
+// Create multiple sessions that will share server instances
+const session1 = await sessionManager.initializeSession(config);
+const session2 = await sessionManager.initializeSession(config);
+const session3 = await sessionManager.initializeSession(config);
+
+// All sessions will use the same server instances for identical server configurations
+// This reduces resource usage and improves startup time for subsequent sessions
+```
+
+When shared servers are enabled:
+
+- Server instances are pooled and reused across sessions
+- Servers are reference-counted and only terminated when no longer needed by any session
+- Server cleanup happens automatically when sessions are cleaned up
+
 ### Send Messages with Streaming
 
 ```typescript
@@ -440,6 +463,10 @@ interface LLMConfig {
       env?: Record<string, string>; // Environment variables
     };
   };
+}
+
+interface SessionManagerOptions {
+  useSharedServers?: boolean; // Enable server sharing across sessions
 }
 ```
 

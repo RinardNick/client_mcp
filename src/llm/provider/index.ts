@@ -12,6 +12,7 @@ export * from './factory';
 // Export specific provider implementations
 export * from './anthropic-provider';
 export * from './openai-provider';
+export * from './grok-provider';
 
 // Export other provider implementations as they are added
 // For example:

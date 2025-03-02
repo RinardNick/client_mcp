@@ -10,7 +10,7 @@ import {
   SummarizationMetrics,
   CostSavingsReport,
 } from './types';
-import { Anthropic, Message } from '@anthropic-ai/sdk';
+import { Anthropic } from '@anthropic-ai/sdk';
 import type { Tool } from '@anthropic-ai/sdk/resources/messages/messages';
 import { MCPTool, MCPResource } from './types';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -35,13 +35,10 @@ import {
   getSummarizationMetrics,
 } from './conversation-summarization';
 import { checkAndTriggerSummarization } from './dynamic-summarization';
-import { relevancePruning } from './relevance-pruning';
-import { truncateBySummarization } from './conversation-summarization';
 import { handleClusterTruncation } from './message-clustering';
 import {
   applyAdaptiveStrategy,
   trackStrategyPerformance,
-  recommendOptimizationStrategy,
 } from './adaptive-context-strategy';
 import {
   applyCostOptimization,

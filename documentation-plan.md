@@ -250,6 +250,163 @@ The documentation should explain all token optimization settings:
 | `truncation_strategy`      | string  | Strategy for truncation: 'oldest-first', 'selective', or 'summarize' |
 | `summarization_threshold`  | number  | Percentage of context window that triggers summarization             |
 
+## Error Handling and Troubleshooting
+
+The documentation should include comprehensive error handling patterns and troubleshooting guides to help users debug issues effectively.
+
+### Common Error Types
+
+The documentation should categorize and explain common error types:
+
+```typescript
+// Standard error structure
+interface LLMError {
+  code: string;
+  message: string;
+  provider?: string;
+  details?: unknown;
+  recoverable: boolean;
+  retry?: boolean;
+}
+```
+
+#### Provider Errors
+
+| Error Code                  | Description                         | Common Causes                          | Resolution                                              |
+| --------------------------- | ----------------------------------- | -------------------------------------- | ------------------------------------------------------- |
+| `provider_auth_error`       | Authentication failed with provider | Invalid API key, expired token         | Verify API key, regenerate if needed                    |
+| `provider_rate_limit`       | Rate limit exceeded                 | Too many requests in short period      | Implement exponential backoff, reduce request frequency |
+| `provider_quota_exceeded`   | Usage quota exceeded                | Monthly/daily usage limit reached      | Upgrade plan, implement usage tracking                  |
+| `provider_model_not_found`  | Model not available                 | Incorrect model ID, model discontinued | Verify model ID, use alternate model                    |
+| `provider_context_overflow` | Context window exceeded             | Too much text in conversation          | Implement context pruning, use summarization            |
+
+#### Server Errors
+
+| Error Code                    | Description                       | Common Causes                       | Resolution                                          |
+| ----------------------------- | --------------------------------- | ----------------------------------- | --------------------------------------------------- |
+| `server_launch_failed`        | MCP server failed to start        | Missing dependencies, port conflict | Check logs, verify dependencies, try alternate port |
+| `server_communication_error`  | Failed to communicate with server | Network issues, server crash        | Check connection, restart server, verify transport  |
+| `server_protocol_error`       | Protocol mismatch                 | MCP version conflict                | Update SDK or server to compatible versions         |
+| `server_tool_execution_error` | Tool execution failed             | Bad tool input, internal tool error | Check tool parameters, verify tool implementation   |
+
+#### Client Errors
+
+| Error Code                  | Description                       | Common Causes                            | Resolution                                         |
+| --------------------------- | --------------------------------- | ---------------------------------------- | -------------------------------------------------- |
+| `config_validation_error`   | Invalid configuration             | Missing required fields, type mismatches | Review configuration schema, check required values |
+| `session_not_found`         | Session does not exist            | Invalid session ID, expired session      | Verify session ID, recreate session if expired     |
+| `provider_not_supported`    | Provider not available            | Unregistered provider type               | Register provider, check spelling of provider name |
+| `model_compatibility_error` | Model incompatible with operation | Feature not supported by selected model  | Check model capabilities, use compatible model     |
+
+### Error Handling Patterns
+
+The documentation should provide examples of proper error handling:
+
+```typescript
+// Basic error handling
+try {
+  const response = await sessionManager.sendMessage(sessionId, message);
+  console.log(response.content);
+} catch (error) {
+  if (error.code === 'provider_rate_limit') {
+    console.log('Rate limit exceeded, retrying after delay...');
+    await delay(1000);
+    return sendMessage(sessionId, message);
+  } else if (error.code === 'session_not_found') {
+    console.log('Session expired, creating new session...');
+    const newSessionId = await sessionManager.createSession();
+    return sendMessage(newSessionId, message);
+  } else {
+    console.error('Unrecoverable error:', error.message);
+    throw error;
+  }
+}
+```
+
+### Retry Strategies
+
+Documentation should explain different retry strategies for transient errors:
+
+```typescript
+// Exponential backoff retry
+async function sendWithRetry(sessionId, message, maxRetries = 3) {
+  let retries = 0;
+
+  while (retries < maxRetries) {
+    try {
+      return await sessionManager.sendMessage(sessionId, message);
+    } catch (error) {
+      if (error.recoverable && error.retry && retries < maxRetries) {
+        const delay = Math.pow(2, retries) * 1000; // Exponential backoff
+        console.log(`Retrying after ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        retries++;
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error('Max retries exceeded');
+}
+```
+
+### Debugging Tools
+
+The documentation should cover built-in debugging tools:
+
+```typescript
+// Enable debugging for detailed logs
+sessionManager.setDebugMode(true);
+
+// Log specific events
+sessionManager.on('error', error => {
+  console.error('Session error:', error);
+});
+
+sessionManager.on('tool_error', (error, toolName) => {
+  console.error(`Error in tool ${toolName}:`, error);
+});
+
+// Export session data for troubleshooting
+const sessionData = await sessionManager.exportSession(sessionId);
+console.log(JSON.stringify(sessionData, null, 2));
+```
+
+### Troubleshooting Guide
+
+The documentation should include a troubleshooting decision tree for common issues:
+
+1. **Provider Authentication Issues**
+
+   - Check API key format and validity
+   - Verify environment variables are correctly set
+   - Confirm API key has necessary permissions
+   - Test with provider's own API tools to verify key
+
+2. **Server Launch Problems**
+
+   - Verify all dependencies are installed
+   - Check server logs for specific error messages
+   - Ensure required ports are available
+   - Verify file paths in server configuration
+   - Check permissions for server executables
+
+3. **Tool Execution Failures**
+
+   - Validate tool input format matches schema
+   - Check tool server is running correctly
+   - Verify network communication is possible
+   - Review server logs for detailed error information
+   - Test tool directly (bypass LLM) to isolate issues
+
+4. **Context Window Issues**
+   - Monitor token usage with `calculateContextUsage()`
+   - Enable automatic context truncation
+   - Implement manual summarization for long conversations
+   - Use lower-context models with appropriate pruning
+   - Split complex requests into multiple simpler ones
+
 ## Usage Examples ✅
 
 The documentation should include comprehensive usage examples covering common scenarios from basic to advanced.
@@ -558,11 +715,12 @@ await sessionManager.closeSession(sessionId);
 │   ├── tool-adapter.md
 │   ├── compatibility.md
 │   └── configuration.md
-└── /resources/ - Additional resources
-    ├── migration-guides.md
-    ├── compatibility-matrix.md
-    ├── glossary.md
-    └── faq.md
+└── /troubleshooting/ - Debugging and error handling
+    ├── common-errors.md
+    ├── provider-issues.md
+    ├── server-issues.md
+    ├── tool-troubleshooting.md
+    └── debugging-techniques.md
 ```
 
 ## Content Development Strategy

@@ -267,11 +267,9 @@ export class LLMError extends Error {
  * Token threshold alert
  */
 export interface TokenAlert {
-  sessionId: string;
-  threshold: number;
-  currentUsage: number;
-  timestamp: Date;
-  recommendation: string;
+  level: 'warning' | 'critical';
+  message: string;
+  percentUsed: number;
 }
 
 /**
@@ -288,4 +286,34 @@ export interface MessageCluster {
   id?: string;
   /** Total tokens used by all messages in this cluster */
   totalTokens?: number;
+}
+
+/**
+ * Cost estimate for token usage
+ */
+export interface CostEstimate {
+  /**
+   * Number of input tokens
+   */
+  inputTokens: number;
+
+  /**
+   * Number of output tokens
+   */
+  outputTokens: number;
+
+  /**
+   * Cost for input tokens in USD
+   */
+  inputCost: number;
+
+  /**
+   * Cost for output tokens in USD
+   */
+  outputCost: number;
+
+  /**
+   * Total cost (input + output) in USD
+   */
+  totalCost: number;
 }

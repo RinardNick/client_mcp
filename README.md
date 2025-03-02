@@ -844,6 +844,58 @@ const anthropicSession = await sessionManager.initializeSession(
 const grokSession = await sessionManager.initializeSession(grokConfig);
 ```
 
+### Provider Management API
+
+The client includes methods for managing different providers and models:
+
+```typescript
+// Get a list of all supported providers
+const providers = sessionManager.getAvailableProviders();
+console.log('Available providers:', providers);
+// Example output: ['anthropic', 'openai', 'grok']
+
+// Get all models for a specific provider
+const anthropicModels = sessionManager.getProviderModels('anthropic');
+console.log(
+  'Anthropic models:',
+  anthropicModels.map(m => m.id)
+);
+// Example output: ['claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307']
+
+// Get supported features for a specific model
+const features = sessionManager.getSupportedFeatures(
+  'anthropic',
+  'claude-3-opus-20240229'
+);
+console.log('Claude features:', features);
+// Example output:
+// {
+//   functionCalling: true,
+//   imageInputs: true,
+//   streaming: true,
+//   jsonMode: false,
+//   thinking: true,
+//   systemMessages: true,
+//   maxContextSize: 200000
+// }
+
+// Estimate costs for a specific model with the current session
+const costEstimate = sessionManager.estimateCosts(
+  sessionId,
+  'openai',
+  'gpt-4o'
+);
+console.log('Estimated cost:', costEstimate);
+// Example output:
+// {
+//   inputTokens: 1000,
+//   outputTokens: 500,
+//   inputCost: 0.005,
+//   outputCost: 0.0075,
+//   totalCost: 0.0125
+// }
+```
+
 ### Switching Models During a Session
 
 ```typescript

@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { LLMConfig } from '../config/types';
+import { LLMConfig, MCPConfig } from '../config/types';
 import {
   ChatMessage,
   LLMError,
@@ -9,6 +9,7 @@ import {
   TokenAlert,
   SummarizationMetrics,
   CostSavingsReport,
+  CostEstimate,
 } from './types';
 import { Anthropic } from '@anthropic-ai/sdk';
 import type { Tool } from '@anthropic-ai/sdk/resources/messages/messages';
@@ -46,8 +47,15 @@ import {
   getCostSavingsReport,
 } from './cost-optimization';
 import { LLMProviderFactory } from './provider/factory';
-import { LLMProviderInterface, ProviderConfig } from './provider/types';
+import {
+  LLMProviderInterface,
+  ProviderConfig,
+  ModelCapability,
+  FeatureSet,
+} from './provider/types';
 import { ModelSwitchOptions } from './types';
+import { getProviderConfig } from '../config/loader';
+import { ModelRegistry } from './provider/model-registry';
 
 // Note: Both of these interfaces are now imported from types.ts
 // So we don't need to re-declare them here
@@ -2498,5 +2506,114 @@ export class SessionManager {
       return undefined;
     }
     return session.providerSpecificData[key];
+  }
+
+  /**
+   * Get a list of all available providers
+   * @returns Array of provider type identifiers
+   */
+  getAvailableProviders(): string[] {
+    console.log('[SESSION] Getting available providers');
+    return LLMProviderFactory.getSupportedProviders();
+  }
+
+  /**
+   * Get all models for a specific provider
+   * @param provider Provider identifier
+   * @returns Array of model capabilities for the provider
+   */
+  getProviderModels(provider: string): ModelCapability[] {
+    console.log(`[SESSION] Getting models for provider: ${provider}`);
+
+    try {
+      // Create a model registry instance
+      const registry = new ModelRegistry();
+
+      // Get models for the provider
+      return registry.listModels(provider);
+    } catch (error) {
+      console.error(
+        `[SESSION] Error getting models for provider ${provider}:`,
+        error
+      );
+      return []; // Return empty array if provider not found
+    }
+  }
+
+  /**
+   * Get the feature set supported by a specific model
+   * @param provider Provider identifier
+   * @param modelId Model identifier
+   * @returns Feature set supported by the model
+   */
+  getSupportedFeatures(provider: string, modelId: string): FeatureSet {
+    console.log(`[SESSION] Getting features for model: ${provider}/${modelId}`);
+
+    // Create a model registry instance
+    const registry = new ModelRegistry();
+
+    // Get model capability information
+    const model = registry.getModel(provider, modelId);
+
+    // Map from ModelCapability to FeatureSet
+    // Note: This is a basic mapping; in a real implementation,
+    // more specific feature information would come from the provider
+    return {
+      functionCalling: model.supportsFunctions,
+      imageInputs: model.supportsImages,
+      streaming: true, // Assuming all models support streaming
+      jsonMode: provider === 'openai', // Only OpenAI models typically support JSON mode
+      thinking: provider === 'anthropic' && modelId.includes('claude-3'), // Only Claude 3 models support thinking
+      systemMessages: true, // Assuming all models support system messages
+      maxContextSize: model.contextWindow,
+    };
+  }
+
+  /**
+   * Estimate costs for using a specific model with the current session
+   * @param sessionId The ID of the session
+   * @param provider Provider identifier
+   * @param modelId Model identifier
+   * @returns Cost estimate for using the model
+   */
+  estimateCosts(
+    sessionId: string,
+    provider: string,
+    modelId: string
+  ): CostEstimate {
+    console.log(
+      `[SESSION] Estimating costs for ${provider}/${modelId} with session ${sessionId}`
+    );
+
+    // Get the session
+    const session = this.getSession(sessionId);
+
+    // Get the token metrics for the session
+    const tokenMetrics = session.tokenMetrics;
+    if (!tokenMetrics) {
+      throw new LLMError('Token metrics not available for session');
+    }
+
+    // Create a model registry instance
+    const registry = new ModelRegistry();
+
+    // Get model capability information
+    const model = registry.getModel(provider, modelId);
+
+    // Calculate costs based on model rates and token counts
+    const inputTokens = tokenMetrics.userTokens + tokenMetrics.systemTokens;
+    const outputTokens = tokenMetrics.assistantTokens;
+
+    const inputCost = (inputTokens / 1000) * model.inputCostPer1K;
+    const outputCost = (outputTokens / 1000) * model.outputCostPer1K;
+    const totalCost = inputCost + outputCost;
+
+    return {
+      inputTokens,
+      outputTokens,
+      inputCost,
+      outputCost,
+      totalCost,
+    };
   }
 }

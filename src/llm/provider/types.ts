@@ -136,6 +136,46 @@ export interface ModelCapability {
 }
 
 /**
+ * Feature set supported by a specific model
+ */
+export interface FeatureSet {
+  /**
+   * Whether the model supports function/tool calling
+   */
+  functionCalling: boolean;
+
+  /**
+   * Whether the model supports image inputs
+   */
+  imageInputs: boolean;
+
+  /**
+   * Whether the model supports streaming responses
+   */
+  streaming: boolean;
+
+  /**
+   * Whether the model supports JSON mode for structured outputs
+   */
+  jsonMode: boolean;
+
+  /**
+   * Whether the model supports thinking process
+   */
+  thinking: boolean;
+
+  /**
+   * Whether the model supports system messages
+   */
+  systemMessages: boolean;
+
+  /**
+   * Maximum context size in tokens
+   */
+  maxContextSize: number;
+}
+
+/**
  * Core interface that all LLM providers must implement
  */
 export interface LLMProviderInterface {

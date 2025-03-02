@@ -9,6 +9,9 @@ export * from './types';
 // Export provider factory
 export * from './factory';
 
+// Export model registry
+export * from './model-registry';
+
 // Export specific provider implementations
 export * from './anthropic-provider';
 export * from './openai-provider';

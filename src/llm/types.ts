@@ -102,6 +102,7 @@ export interface ChatMessage {
   hasToolCall?: boolean;
   toolCall?: ToolCall;
   isToolResult?: boolean;
+  toolId?: string; // Add toolId for tool result tracking
   tokens?: number; // Track tokens per message
   timestamp?: Date; // When message was created
 }

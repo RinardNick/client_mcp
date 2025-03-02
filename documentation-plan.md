@@ -54,6 +54,107 @@ Based on analysis of the codebase, we'll implement a tiered documentation approa
 - **Sequence Diagrams**: Interaction patterns
 - **Video Tutorials**: Screencasts for key workflows
 
+## Multi-Provider Implementation
+
+The TS-MCP-Client implements a flexible multi-provider architecture that allows using different LLM providers interchangeably. This section outlines the implementation that should be documented in detail.
+
+### Provider Abstraction Layer
+
+The foundation of multi-provider support is a common interface that all LLM providers implement:
+
+```typescript
+interface LLMProviderInterface {
+  name: string;
+  supportedModels: ModelCapability[];
+
+  initialize(config: ProviderConfig): Promise<void>;
+  sendMessage(message: string, options: MessageOptions): Promise<LLMResponse>;
+  streamMessage(
+    message: string,
+    options: MessageOptions
+  ): AsyncGenerator<LLMResponseChunk>;
+  countTokens(text: string, model?: string): number;
+  formatToolsForProvider(tools: MCPTool[]): unknown;
+  parseToolCall(response: LLMResponse): ToolCall | null;
+}
+```
+
+### Provider Factory Pattern
+
+The client uses a factory pattern to instantiate and manage providers:
+
+```typescript
+class LLMProviderFactory {
+  static providerRegistry: Map<string, new () => LLMProviderInterface>;
+
+  static registerProvider(
+    type: string,
+    providerClass: new () => LLMProviderInterface
+  ): void;
+  static getProvider(
+    type: string,
+    config: ProviderConfig
+  ): Promise<LLMProviderInterface>;
+  static getAvailableProviders(): string[];
+}
+```
+
+### Supported Providers
+
+Documentation should highlight the supported providers and their capabilities:
+
+1. **Anthropic Provider**:
+
+   - Support for Claude 3 models (Opus, Sonnet, Haiku)
+   - Advanced system prompting
+   - Tool use capability in compatible models
+   - Thinking support
+
+2. **OpenAI Provider**:
+
+   - Support for GPT models (GPT-4, GPT-3.5)
+   - Function calling compatibility
+   - Stream handling for different OpenAI SDK versions
+   - Cost estimation
+
+3. **Grok Provider**:
+   - Support for Grok models
+   - Specialized authentication
+   - Tool adaptation for Grok requirements
+
+### Model Switching
+
+A key feature is the ability to switch between providers and models in an active session:
+
+```typescript
+// Switch from one provider/model to another
+await sessionManager.switchSessionModel(
+  sessionId,
+  'openai', // target provider
+  'gpt-4o', // target model
+  {
+    preserveContext: true,
+    adaptToolCalls: true,
+  }
+);
+```
+
+### Tool Format Normalization
+
+The documentation should explain how tools are adapted between different providers:
+
+```typescript
+// Using the tool adapter
+const toolAdapter = new ToolAdapter();
+
+// Convert tools to provider-specific format
+const anthropicTools = toolAdapter.adaptToolsForProvider(tools, 'anthropic');
+const openaiTools = toolAdapter.adaptToolsForProvider(tools, 'openai');
+
+// Parse tool calls from different providers
+const toolCall = toolAdapter.parseToolCallFromProvider(response, providerName);
+```
+
 ## Detailed Documentation Plan
 
 ### Phase 1: Core Documentation (Immediate)

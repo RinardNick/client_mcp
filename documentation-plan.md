@@ -155,6 +155,101 @@ const openaiTools = toolAdapter.adaptToolsForProvider(tools, 'openai');
 const toolCall = toolAdapter.parseToolCallFromProvider(response, providerName);
 ```
 
+## Configuration Options
+
+The documentation should provide comprehensive information about configuration options, especially with the multi-provider setup.
+
+### Multi-Provider Configuration Format
+
+```typescript
+// Sample configuration with multiple providers
+const config = {
+  providers: {
+    anthropic: {
+      api_key: process.env.ANTHROPIC_API_KEY,
+      default_model: 'claude-3-opus-20240229',
+      system_prompt: 'You are a helpful AI assistant...',
+      thinking: {
+        enabled: true,
+        budget_tokens: 1000,
+      },
+    },
+    openai: {
+      api_key: process.env.OPENAI_API_KEY,
+      default_model: 'gpt-4o',
+      system_prompt: 'You are a helpful AI assistant...',
+    },
+    grok: {
+      api_key: process.env.GROK_API_KEY,
+      default_model: 'grok-1',
+      system_prompt: 'You are a helpful AI assistant...',
+    },
+  },
+  default_provider: 'anthropic',
+  default_models: {
+    anthropic: 'claude-3-sonnet-20240229',
+    openai: 'gpt-4o',
+    grok: 'grok-1',
+  },
+  servers: {
+    calculator: {
+      command: 'node',
+      args: ['calculator-server.js'],
+    },
+    weather: {
+      command: 'python',
+      args: ['weather-server.py'],
+    },
+  },
+  token_optimization: {
+    enabled: true,
+    auto_truncate: true,
+    preserve_system_messages: true,
+    preserve_recent_messages: 5,
+    truncation_strategy: 'summarize',
+  },
+  fallback_chain: ['anthropic', 'openai', 'grok'],
+};
+```
+
+### Provider-Specific Options
+
+Each provider can have specific configuration options that should be documented:
+
+#### Anthropic Provider Options
+
+| Option                   | Type    | Description                                 |
+| ------------------------ | ------- | ------------------------------------------- |
+| `api_key`                | string  | Anthropic API key                           |
+| `default_model`          | string  | Default Claude model to use                 |
+| `system_prompt`          | string  | System prompt for all conversations         |
+| `thinking`               | object  | Configuration for Claude's thinking process |
+| `thinking.enabled`       | boolean | Whether to enable thinking                  |
+| `thinking.budget_tokens` | number  | Maximum tokens to spend on thinking         |
+
+#### OpenAI Provider Options
+
+| Option          | Type   | Description                         |
+| --------------- | ------ | ----------------------------------- |
+| `api_key`       | string | OpenAI API key                      |
+| `default_model` | string | Default GPT model to use            |
+| `system_prompt` | string | System prompt for all conversations |
+| `temperature`   | number | Temperature for response generation |
+| `max_tokens`    | number | Maximum tokens in model response    |
+
+### Token Optimization Options
+
+The documentation should explain all token optimization settings:
+
+| Option                     | Type    | Description                                                          |
+| -------------------------- | ------- | -------------------------------------------------------------------- |
+| `enabled`                  | boolean | Whether token optimization is enabled                                |
+| `auto_truncate`            | boolean | Automatically truncate conversation when approaching context limit   |
+| `preserve_system_messages` | boolean | Always keep system messages in context                               |
+| `preserve_recent_messages` | number  | Number of recent messages to always preserve                         |
+| `truncation_strategy`      | string  | Strategy for truncation: 'oldest-first', 'selective', or 'summarize' |
+| `summarization_threshold`  | number  | Percentage of context window that triggers summarization             |
+
 ## Detailed Documentation Plan
 
 ### Phase 1: Core Documentation (Immediate)

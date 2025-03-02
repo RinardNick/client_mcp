@@ -1,4 +1,54 @@
-# Tool Continuation Fix - Version 1.1.2
+# Changes
+
+## 1.2.0 - Provider Compatibility Checker
+
+### Changes
+
+- Added `ProviderCompatibilityChecker` for analyzing compatibility between different LLM providers
+- Implemented compatibility detection for context window size, tool handling, and vision capabilities
+- Added migration plan generation with token impact analysis and recommendations
+- Support for custom compatibility checks for specific provider combinations
+
+### Implementation Details
+
+- Created `src/llm/provider-compatibility.ts` with the `ProviderCompatibilityChecker` class
+- Added comprehensive test suite in `src/llm/provider-compatibility.test.ts`
+- Integrated with the existing model registry for capability-based compatibility analysis
+- Implemented severity-based issue reporting (ERROR, WARNING, INFO)
+
+### How to Verify
+
+```typescript
+import { ProviderCompatibilityChecker } from '@rinardnick/client_mcp';
+
+// Create a compatibility checker
+const compatibilityChecker = new ProviderCompatibilityChecker();
+
+// Check compatibility between providers/models
+const compatibility = compatibilityChecker.checkCompatibility(
+  { provider: 'anthropic', modelId: 'claude-3-opus-20240229' },
+  { provider: 'openai', modelId: 'gpt-4o' }
+);
+
+console.log(`Found ${compatibility.issues.length} compatibility issues`);
+
+// Generate a migration plan
+const migrationPlan = compatibilityChecker.getMigrationPlan(
+  { provider: 'anthropic', modelId: 'claude-3-opus-20240229' },
+  { provider: 'openai', modelId: 'gpt-4o' },
+  { currentTokenCount: 15000 }
+);
+
+console.log(`Migration impact: ${migrationPlan.tokenImpact} tokens`);
+```
+
+### Next Steps
+
+- Use the compatibility checker when switching models in a session
+- Add UI components to display compatibility warnings
+- Implement automatic migration recommendations in the session manager
+
+## 1.1.2 - Tool Continuation Fix
 
 ## Summary of Changes
 

@@ -1,25 +1,26 @@
 import { SessionManager } from './llm/session';
-import { 
-  ChatSession, 
-  ChatMessage, 
-  LLMError, 
-  TokenMetrics, 
-  TokenCost, 
+import {
+  ChatSession,
+  ChatMessage,
+  LLMError,
+  TokenMetrics,
+  TokenCost,
   ContextSettings,
-  TokenAlert
+  TokenAlert,
 } from './llm/types';
 import { LLMConfig, ConfigurationError, ServerConfig } from './config/types';
 import express, { Request, Response, Router } from 'express';
+import { ProviderCompatibilityChecker } from './llm/provider-compatibility';
 
 export { SessionManager } from './llm/session';
-export { 
-  ChatSession, 
-  ChatMessage, 
-  LLMError, 
-  TokenMetrics, 
-  TokenCost, 
+export {
+  ChatSession,
+  ChatMessage,
+  LLMError,
+  TokenMetrics,
+  TokenCost,
   ContextSettings,
-  TokenAlert 
+  TokenAlert,
 } from './llm/types';
 export { LLMConfig, ConfigurationError, ServerConfig } from './config/types';
 export { loadConfig } from './config/loader';
@@ -30,8 +31,9 @@ export {
   getContextLimit,
   isContextWindowCritical,
   getContextRecommendation,
-  calculateContextUsage
+  calculateContextUsage,
 } from './llm/token-counter';
+export { ProviderCompatibilityChecker } from './llm/provider-compatibility';
 
 // Helper functions
 export async function createSession(config: LLMConfig): Promise<ChatSession> {

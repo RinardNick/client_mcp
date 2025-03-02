@@ -620,3 +620,170 @@ interface SessionManagerOptions {
 ## License
 
 This project is licensed under the ISC License.
+
+## Multi-Provider Support
+
+The client supports multiple LLM providers and allows switching between them during an active session.
+
+### Supported Providers
+
+```typescript
+// Initialize with different providers
+const openaiConfig = {
+  type: 'openai',
+  api_key: process.env.OPENAI_API_KEY,
+  model: 'gpt-4o',
+  system_prompt: 'You are a helpful assistant with access to tools.',
+};
+
+const anthropicConfig = {
+  type: 'anthropic',
+  api_key: process.env.ANTHROPIC_API_KEY,
+  model: 'claude-3-5-sonnet-20241022',
+  system_prompt: 'You are a helpful assistant with access to tools.',
+};
+
+const grokConfig = {
+  type: 'grok',
+  api_key: process.env.GROK_API_KEY,
+  model: 'grok-1',
+  system_prompt: 'You are a helpful assistant with access to tools.',
+};
+
+// Initialize sessions with different providers
+const openaiSession = await sessionManager.initializeSession(openaiConfig);
+const anthropicSession = await sessionManager.initializeSession(
+  anthropicConfig
+);
+const grokSession = await sessionManager.initializeSession(grokConfig);
+```
+
+### Switching Models During a Session
+
+```typescript
+// Switch from one provider/model to another during an active session
+const updatedSession = await sessionManager.switchSessionModel(
+  sessionId,
+  'anthropic', // Target provider
+  'claude-3-opus-20240229', // Target model
+  {
+    preserveHistory: true, // Convert and keep conversation history
+    addTransitionMessage: true, // Add a message indicating the switch
+  }
+);
+
+console.log(`Switched to ${updatedSession.provider}/${updatedSession.modelId}`);
+```
+
+### Provider Compatibility Checker
+
+The client includes a compatibility checker to identify potential issues when switching between providers:
+
+```typescript
+import { ProviderCompatibilityChecker } from '@rinardnick/client_mcp';
+
+// Create a compatibility checker
+const compatibilityChecker = new ProviderCompatibilityChecker();
+
+// Check compatibility between providers/models
+const compatibility = compatibilityChecker.checkCompatibility(
+  { provider: 'anthropic', modelId: 'claude-3-opus-20240229' },
+  { provider: 'openai', modelId: 'gpt-4o' }
+);
+
+if (compatibility.issues.length > 0) {
+  console.log(`Found ${compatibility.issues.length} compatibility issues:`);
+
+  // Log issues by severity
+  const criticalIssues = compatibility.issues.filter(
+    i => i.severity === 'ERROR'
+  );
+  const warnings = compatibility.issues.filter(i => i.severity === 'WARNING');
+
+  console.log(`Critical issues: ${criticalIssues.length}`);
+  console.log(`Warnings: ${warnings.length}`);
+
+  // Check specific issue types
+  const contextIssue = compatibility.issues.find(
+    i => i.type === 'CONTEXT_WINDOW'
+  );
+  const toolsIssue = compatibility.issues.find(i => i.type === 'TOOL_FORMAT');
+  const visionIssue = compatibility.issues.find(
+    i => i.type === 'VISION_SUPPORT'
+  );
+
+  if (contextIssue) {
+    console.log(`Context window impact: ${contextIssue.detail}`);
+  }
+}
+
+// Generate a migration plan
+const migrationPlan = compatibilityChecker.getMigrationPlan(
+  { provider: 'anthropic', modelId: 'claude-3-opus-20240229' },
+  { provider: 'openai', modelId: 'gpt-4o' },
+  {
+    currentTokenCount: 15000,
+    includeRecommendations: true,
+  }
+);
+
+console.log(`Migration impact: ${migrationPlan.tokenImpact} tokens`);
+console.log(
+  `Potential loss areas: ${migrationPlan.potentialLossAreas.join(', ')}`
+);
+console.log(`Recommendations: ${migrationPlan.recommendations.join('\n')}`);
+```
+
+### Custom Compatibility Checks
+
+You can register custom compatibility checks for specific provider combinations:
+
+```typescript
+// Register a custom compatibility check
+compatibilityChecker.registerCompatibilityCheck(
+  'anthropic',
+  'openai',
+  (sourceModel, targetModel) => {
+    // Custom logic to check compatibility
+    const issues = [];
+
+    // Check for custom feature support
+    if (sourceModel.supportsFeatureX && !targetModel.supportsFeatureX) {
+      issues.push({
+        type: 'CUSTOM_FEATURE',
+        severity: 'WARNING',
+        message: 'Target model does not support Feature X',
+        detail: 'Some functionality may be lost during migration',
+      });
+    }
+
+    return issues;
+  }
+);
+```
+
+##### Conversation Summarization
+
+The summarization strategy uses the LLM to create concise summaries of message groups:
+
+```typescript
+// Configure summarization settings
+sessionManager.setContextSettings(sessionId, {
+  truncationStrategy: 'summarize',
+  summarizationBatchSize: 5, // Number of messages to summarize together
+  minCompressionRatio: 2.0, // Minimum compression ratio to keep summaries
+});
+
+// Get summarization metrics
+const summaryMetrics = sessionManager.getSummarizationStatus(sessionId);
+console.log(`Total summaries: ${summaryMetrics.totalSummaries}`);
+console.log(`Tokens saved: ${summaryMetrics.totalTokensSaved}`);
+console.log(`Average compression: ${summaryMetrics.averageCompressionRatio}x`);
+```
+
+Benefits of summarization:
+
+- Preserves key information while reducing token usage
+- Maintains conversation coherence better than simple truncation
+- Achieves higher compression ratios for long conversations
+- Automatically tracks summarization efficiency

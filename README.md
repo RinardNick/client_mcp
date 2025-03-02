@@ -309,6 +309,32 @@ Benefits of dynamic summarization:
 
 ## Context Optimization Features
 
+### Adaptive Context Strategy
+
+The library includes an adaptive context optimization strategy that automatically selects the most effective optimization method based on conversation characteristics and past performance.
+
+```typescript
+// Configure adaptive context strategy
+sessionManager.setContextSettings({
+  adaptiveStrategyEnabled: true, // Enable adaptive strategy selection
+  strategySelectionThreshold: 3, // Minimum performance data points before relying on past performance
+});
+```
+
+Benefits of adaptive context strategy:
+
+- **Intelligent Strategy Selection**: Automatically chooses the best strategy based on conversation type
+- **Performance Learning**: Tracks and learns from the effectiveness of different strategies
+- **Conversation Analysis**: Identifies conversation characteristics like question density and topic changes
+- **Optimal Token Usage**: Maximizes context quality while minimizing token usage
+
+The adaptive strategy selects from the following optimization methods:
+
+- **Oldest-First**: Simple and efficient for basic Q&A conversations
+- **Relevance-Based**: Preserves important messages for technical discussions
+- **Summarization**: Condenses creative content while preserving key information
+- **Clustering**: Maintains topic coherence for conversations with multiple subjects
+
 ### Message Clustering
 
 The library includes a message clustering feature that intelligently groups related messages by topic, allowing for more coherent context optimization. When the context window gets too full, the system can remove entire topic clusters that are less important, rather than arbitrary messages.

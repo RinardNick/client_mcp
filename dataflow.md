@@ -7,6 +7,7 @@
 - Initiates conversations through the chat interface
 - Views real-time progress of tool executions and LLM responses
 - Receives and interprets different types of messages (thinking, tool execution, results)
+- Selects preferred LLM provider and model when supported
 
 ### Host (MCP Host)
 
@@ -19,13 +20,14 @@
 - Maintains minimal UI state (loading flags, display preferences)
 - Provides debugging interface for development
 - Shows available tools in the UI
+- Displays provider selection options
 
 ### Client (TS-MCP-Client)
 
 - Manages all session state and lifecycle
 - Handles session persistence and recovery
 - Tracks session activity and expiry
-- Coordinates all LLM interactions
+- Coordinates all LLM interactions across multiple providers (Anthropic, OpenAI, Grok)
 - Manages server lifecycle through SDK (launch, health, shutdown)
 - Leverages SDK for tool discovery and execution
 - Enforces tool call limits
@@ -36,6 +38,12 @@
 - Uses SDK for MCP protocol communication
 - Manages configuration validation and loading
 - Caches tool capabilities using SDK utilities
+- Handles provider switching and compatibility
+- Normalizes tool formats across different providers
+- Adapts conversation context for different model capabilities
+- Optimizes token usage through smart context management
+- Detects provider compatibility issues
+- Provides cost estimation and optimization
 
 ### MCP Servers
 
@@ -47,16 +55,17 @@
 - Handle resource management and access control
 - Implement server-specific security measures
 
-### LLM (Anthropic)
+### LLM Providers (Anthropic, OpenAI, Grok)
 
-- Processes messages with context
-- Makes decisions about tool usage
-- Formats tool call requests
-- Interprets tool results
-- Maintains conversation coherence
-- Provides natural language responses
-- Adheres to system prompts and constraints
-- Manages token limits and response formatting
+- Process messages with context
+- Make decisions about tool usage
+- Format tool call requests
+- Interpret tool results
+- Maintain conversation coherence
+- Provide natural language responses
+- Adhere to system prompts and constraints
+- Manage token limits and response formatting
+- Expose provider-specific capabilities
 
 ## System Components Flow Diagram
 
@@ -65,32 +74,38 @@ sequenceDiagram
     participant U as User
     participant H as Host
     participant C as Client
+    participant P as Provider Adapter
     participant S as SDK
     participant M as MCP Servers
-    participant L as LLM (Anthropic)
+    participant L as LLM Providers
 
     %% Initialization Flow
     U->>H: Open Chat Interface
     H->>C: Initialize Client
     C->>C: Load Config
+    C->>P: Create Provider(s)
     C->>S: Create MCP Client
     S->>M: Launch Servers
     S->>M: Protocol Handshake
     M-->>S: Protocol Version
     S->>M: Get Capabilities (JSON-RPC)
     M-->>S: Tool List (JSON-RPC)
-    C->>L: Initialize Session with Tools
-    L-->>C: Session Created
+    C->>P: Initialize Session with Tools
+    P->>L: Create Session with Provider
+    L-->>P: Session Created
+    P-->>C: Provider Session Ready
     C->>C: Store Session State
-    C-->>H: Session Ready + Tools List
+    C-->>H: Session Ready + Tools List + Available Providers
     H-->>U: Display Interface
 
     %% Message Flow
     U->>H: Send Message
     H->>C: Forward Message
     C->>C: Update Session Activity
-    C->>L: Send w/Tools Context
-    L-->>C: Response w/Tool Call
+    C->>P: Adapt Message for Provider
+    P->>L: Send w/Tools Context
+    L-->>P: Response w/Tool Call
+    P-->>C: Normalized Tool Call
 
     Note over H,C: Begin Streaming
     C-->>H: Stream: Thinking
@@ -103,11 +118,85 @@ sequenceDiagram
     C-->>H: Stream: Tool Result
     H-->>U: Display Tool Result
 
-    C->>L: Send Tool Result
-    L-->>C: Final Response
+    C->>P: Send Tool Result
+    P->>L: Forward Tool Result to Provider
+    L-->>P: Final Response
+    P-->>C: Normalized Response
     C->>C: Update Session State
     C-->>H: Stream: Content
     H-->>U: Display Content
+```
+
+## Provider Management Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> Configuration: Load Configuration
+    Configuration --> ProviderInitialization: Create Provider Factory
+    ProviderInitialization --> ProviderRegistry: Register Available Providers
+    ProviderRegistry --> DefaultProvider: Select Default Provider
+    DefaultProvider --> Ready: Provider Ready
+
+    Ready --> ProviderSwitch: Switch Provider Request
+    ProviderSwitch --> CompatibilityCheck: Check Compatibility
+    CompatibilityCheck --> MigrationPlan: Generate Migration Plan
+    MigrationPlan --> ContextAdaptation: Adapt Conversation Context
+    ContextAdaptation --> Ready: Provider Ready
+
+    Ready --> ToolExecution: Execute Tool
+    ToolExecution --> ToolAdaptation: Adapt Tool Format
+    ToolAdaptation --> ToolExecution: Execute Adapted Tool
+    ToolExecution --> Ready: Tool Complete
+```
+
+## Multi-Provider Support
+
+```mermaid
+classDiagram
+    class LLMProviderFactory {
+        +static providerRegistry: Map
+        +static registerProvider(type, providerClass)
+        +static getProvider(type, config): Provider
+        +static getAvailableProviders(): string[]
+    }
+
+    class LLMProviderInterface {
+        <<interface>>
+        +name: string
+        +supportedModels: ModelCapability[]
+        +initialize(config): Promise
+        +formatToolsForProvider(tools): any[]
+        +parseToolCall(response): ToolCall
+        +countTokens(text, model): number
+        +sendMessage(message, options): Promise
+        +streamMessage(message, options): AsyncGenerator
+    }
+
+    class AnthropicProvider {
+        +name: "anthropic"
+        +initialize(config): Promise
+        +formatToolsForProvider(tools): any[]
+        +parseToolCall(response): ToolCall
+    }
+
+    class OpenAIProvider {
+        +name: "openai"
+        +initialize(config): Promise
+        +formatToolsForProvider(tools): any[]
+        +parseToolCall(response): ToolCall
+    }
+
+    class GrokProvider {
+        +name: "grok"
+        +initialize(config): Promise
+        +formatToolsForProvider(tools): any[]
+        +parseToolCall(response): ToolCall
+    }
+
+    LLMProviderInterface <|.. AnthropicProvider
+    LLMProviderInterface <|.. OpenAIProvider
+    LLMProviderInterface <|.. GrokProvider
+    LLMProviderFactory ..> LLMProviderInterface : creates
 ```
 
 ## Server Lifecycle Management
@@ -156,6 +245,31 @@ sequenceDiagram
     Note over C,M: Connection Health Auto-Managed
 ```
 
+## Tool Adaptation Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as Tool Adapter
+    participant P as Provider
+
+    C->>A: adaptToolsForProvider(tools, provider)
+    A->>A: Get adapter for provider
+    A->>P: Convert tools to provider format
+    P-->>A: Provider-specific tool format
+    A-->>C: Adapted tools
+
+    C->>P: Send message with tools
+    P-->>C: Response with tool call
+
+    C->>A: parseToolCallFromProvider(response, provider)
+    A->>A: Get adapter for provider
+    A->>P: Extract tool call data
+    P-->>A: Provider-specific tool call
+    A-->>A: Convert to canonical format
+    A-->>C: Normalized tool call
+```
+
 ## Error Handling Flow
 
 ### SDK Error Types
@@ -202,75 +316,131 @@ stateDiagram-v2
     Failed --> [*]: Report Error
 ```
 
+## Provider Compatibility
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant CC as Compatibility Checker
+    participant PS as Current Provider Session
+    participant PT as Target Provider
+
+    C->>CC: checkCompatibility(sourceProvider, targetProvider)
+    CC->>CC: Run compatibility checks
+    CC->>CC: Calculate compatibility score
+    CC-->>C: Compatibility result
+
+    C->>CC: getMigrationPlan(sourceProvider, targetProvider)
+    CC->>CC: Analyze context impact
+    CC->>CC: Generate required actions
+    CC->>CC: List potential data loss
+    CC-->>C: Migration plan
+
+    C->>PS: Get current session state
+    PS-->>C: Session messages and context
+    C->>C: Apply migration plan
+    C->>PT: Create new session with adapted context
+    PT-->>C: New provider session
+```
+
 ## Implementation Notes
 
-### SDK Best Practices
+### Multi-Provider Configuration
 
-1. **Server Health Management**
+```typescript
+// Multi-provider configuration
+const config = {
+  providers: {
+    anthropic: {
+      api_key: 'sk-ant-...',
+      default_model: 'claude-3-opus-20240229',
+      system_prompt: 'You are a helpful assistant...',
+    },
+    openai: {
+      api_key: 'sk-...',
+      default_model: 'gpt-4-turbo',
+      system_prompt: 'You are a helpful assistant...',
+    },
+  },
+  default_provider: 'anthropic',
+  servers: {
+    calculator: {
+      command: 'node',
+      args: ['calculator-server.js'],
+    },
+  },
+};
 
-   ```typescript
-   // Health checks are built into SDK client initialization
-   const transport = new StdioTransport(process);
-   const client = await createMCPClient(transport);
-   // If client creation succeeds, server is healthy
-   ```
+// Create session with specific provider
+const session = await createSession({
+  provider: 'anthropic',
+  model: 'claude-3-sonnet-20240229',
+});
 
-2. **Error Handling**
+// Switch provider mid-conversation
+await switchSessionProvider(sessionId, 'openai', 'gpt-4o');
+```
 
-   ```typescript
-   try {
-     const client = await createMCPClient(transport);
-   } catch (error) {
-     if (error instanceof MCPConnectionError) {
-       // Handle connection issues
-     } else if (error instanceof MCPProtocolError) {
-       // Handle protocol issues
-     }
-   }
-   ```
+### Tool Adaptation
 
-3. **Resource Management**
-   ```typescript
-   // SDK handles connection lifecycle
-   const client = await createMCPClient(transport);
-   try {
-     // Use client
-   } finally {
-     await client.disconnect();
-   }
-   ```
+```typescript
+// Using the tool adapter
+import { ToolAdapter } from '@rinardnick/client_mcp';
+
+const toolAdapter = new ToolAdapter();
+
+// Convert tools to provider-specific format
+const anthropicTools = toolAdapter.adaptToolsForProvider(tools, 'anthropic');
+const openaiTools = toolAdapter.adaptToolsForProvider(tools, 'openai');
+
+// Parse tool calls from different providers
+const toolCall = toolAdapter.parseToolCallFromProvider(response, providerName);
+```
+
+### Provider Compatibility
+
+```typescript
+// Check compatibility between providers
+import { ProviderCompatibilityChecker } from '@rinardnick/client_mcp';
+
+const checker = new ProviderCompatibilityChecker();
+
+// Check if providers are compatible
+const compatibility = checker.checkCompatibility(
+  'anthropic',
+  'claude-3-opus-20240229',
+  'openai',
+  'gpt-4o'
+);
+
+// Get migration plan when switching providers
+const plan = checker.getMigrationPlan(
+  'anthropic',
+  'claude-3-opus-20240229',
+  'openai',
+  'gpt-4o',
+  { currentContextSize: 15000 }
+);
+```
 
 ### Performance Considerations
 
-1. **Connection Management**
+1. **Provider Selection**
 
-   - SDK manages connection pooling
-   - Handles reconnection attempts
-   - Maintains connection health
+   - Choose providers based on capability requirements
+   - Consider cost differences between providers
+   - Use compatibility checker when switching providers
 
-2. **Protocol Efficiency**
+2. **Tool Adaptation**
 
-   - Built-in protocol validation
-   - Automatic capability caching
-   - Optimized message handling
+   - Use the tool adapter for cross-provider compatibility
+   - Implement provider-specific fallbacks for unsupported features
+   - Cache adapted tools to improve performance
 
-3. **Resource Cleanup**
-   - Automatic resource cleanup
-   - Connection pooling
-   - Memory management
-
-### Security Notes
-
-1. **Protocol Security**
-
-   - SDK validates all messages
-   - Enforces protocol version
-   - Handles secure handshake
-
-2. **Resource Protection**
-   - Automatic cleanup on errors
-   - Proper error propagation
-   - Safe resource handling
+3. **Context Management**
+   - Implement smart truncation when switching to models with smaller context windows
+   - Use conversation summarization for longer conversations
+   - Track token usage across different providers
 
 ```
 

@@ -1,5 +1,58 @@
 # Changes
 
+## 1.3.0 - Tool Format Normalization
+
+### Changes
+
+- Added `ToolAdapter` class for normalizing tool formats between different LLM providers
+- Implemented automatic conversion of tools to provider-specific formats
+- Added bidirectional conversion between provider formats and canonical format
+- Support for registering custom provider adapters
+
+### Implementation Details
+
+- Created `src/llm/tool-adapter.ts` with the `ToolAdapter` class
+- Added comprehensive test suite in `src/llm/tool-adapter.test.ts`
+- Implemented adapters for Anthropic, OpenAI, and Grok providers
+- Created standardized parsing for tool calls from different providers
+
+### How to Verify
+
+```typescript
+import { ToolAdapter, MCPTool } from '@rinardnick/client_mcp';
+
+// Create a tool adapter
+const toolAdapter = new ToolAdapter();
+
+// Define a tool in canonical format
+const weatherTool: MCPTool = {
+  name: 'get_weather',
+  description: 'Get weather information',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      location: { type: 'string' },
+    },
+  },
+};
+
+// Convert to different provider formats
+const anthropicTool = toolAdapter.adaptToolForProvider(
+  weatherTool,
+  'anthropic'
+);
+const openaiTool = toolAdapter.adaptToolForProvider(weatherTool, 'openai');
+
+// Parse tool calls
+const toolCall = toolAdapter.parseToolCallFromProvider(response, 'anthropic');
+```
+
+### Next Steps
+
+- Integrate the tool adapter with the session manager
+- Add automatic tool format conversion during model switching
+- Provide graceful fallbacks for provider-specific features
+
 ## 1.2.0 - Provider Compatibility Checker
 
 ### Changes

@@ -11,6 +11,7 @@ import {
 import { LLMConfig, ConfigurationError, ServerConfig } from './config/types';
 import express, { Request, Response, Router } from 'express';
 import { ProviderCompatibilityChecker } from './llm/provider-compatibility';
+import { ToolAdapter } from './llm/tool-adapter';
 
 export { SessionManager } from './llm/session';
 export {
@@ -34,6 +35,7 @@ export {
   calculateContextUsage,
 } from './llm/token-counter';
 export { ProviderCompatibilityChecker } from './llm/provider-compatibility';
+export { ToolAdapter } from './llm/tool-adapter';
 
 // Helper functions
 export async function createSession(config: LLMConfig): Promise<ChatSession> {

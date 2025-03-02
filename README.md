@@ -762,6 +762,119 @@ compatibilityChecker.registerCompatibilityCheck(
 );
 ```
 
+## Tool Format Normalization
+
+The client includes a tool adapter system that normalizes tool formats between different providers. This allows you to define tools once and use them with any supported provider:
+
+```typescript
+import { ToolAdapter, MCPTool } from '@rinardnick/client_mcp';
+
+// Create a tool adapter
+const toolAdapter = new ToolAdapter();
+
+// Define a tool in canonical format
+const weatherTool: MCPTool = {
+  name: 'get_weather',
+  description: 'Get the current weather for a location',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      location: {
+        type: 'string',
+        description: 'The city and state, e.g. San Francisco, CA',
+      },
+      unit: {
+        type: 'string',
+        enum: ['celsius', 'fahrenheit'],
+        description: 'Unit of temperature',
+      },
+    },
+    required: ['location'],
+  },
+};
+
+// Convert to different provider formats
+const anthropicTool = toolAdapter.adaptToolForProvider(
+  weatherTool,
+  'anthropic'
+);
+const openaiTool = toolAdapter.adaptToolForProvider(weatherTool, 'openai');
+const grokTool = toolAdapter.adaptToolForProvider(weatherTool, 'grok');
+
+// Convert arrays of tools
+const tools = [weatherTool, anotherTool];
+const anthropicTools = toolAdapter.adaptToolsForProvider(tools, 'anthropic');
+```
+
+### Parsing Tool Calls from Different Providers
+
+You can also parse tool calls from different providers into a canonical format:
+
+```typescript
+// Parse an Anthropic tool call to canonical format
+const anthropicResponse = {
+  content: '',
+  rawResponse: {
+    content: [
+      {
+        type: 'tool_use',
+        tool_use: {
+          name: 'get_weather',
+          input: {
+            location: 'San Francisco, CA',
+            unit: 'celsius',
+          },
+        },
+      },
+    ],
+  },
+};
+
+const toolCall = toolAdapter.parseToolCallFromProvider(
+  anthropicResponse,
+  'anthropic'
+);
+
+console.log(toolCall);
+// {
+//   name: 'get_weather',
+//   parameters: {
+//     location: 'San Francisco, CA',
+//     unit: 'celsius'
+//   }
+// }
+```
+
+### Custom Provider Adapters
+
+You can register adapters for custom providers:
+
+```typescript
+// Register a custom adapter
+toolAdapter.registerToolAdapter('custom_provider', {
+  adaptTool: (tool: MCPTool) => ({
+    customName: tool.name,
+    customDescription: tool.description,
+    schema: tool.inputSchema,
+  }),
+  parseToolCall: (response: any): ToolCall | null => {
+    if (response.rawResponse?.custom_tool_call) {
+      return {
+        name: response.rawResponse.custom_tool_call.customName,
+        parameters: response.rawResponse.custom_tool_call.args,
+      };
+    }
+    return null;
+  },
+});
+
+// Use your custom adapter
+const customTool = toolAdapter.adaptToolForProvider(
+  weatherTool,
+  'custom_provider'
+);
+```
+
 ##### Conversation Summarization
 
 The summarization strategy uses the LLM to create concise summaries of message groups:

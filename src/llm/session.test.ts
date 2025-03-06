@@ -784,6 +784,112 @@ describe('SessionManager', () => {
       ]);
     });
   });
+
+  describe('Tool Execution', () => {
+    it('should execute a tool and add both use and result messages', async () => {
+      const session = await sessionManager.initializeSession(validConfig);
+      session.serverClients.set('test', mockMCPClient as unknown as Client);
+
+      const toolName = 'list-files';
+      const toolParameters = { path: '/tmp' };
+      const assistantContent = 'I need to check the files';
+
+      // Mock the executeTool method to return a specific result
+      const mockResult = { files: ['test1.txt', 'test2.txt'] };
+      const executeTool = vi.spyOn(sessionManager as any, 'executeTool');
+      executeTool.mockResolvedValueOnce(mockResult);
+
+      // Execute the tool and get the result
+      const result = await sessionManager.executeToolAndAddResult(
+        session.id,
+        toolName,
+        toolParameters,
+        assistantContent
+      );
+
+      // Verify result format
+      expect(result).toEqual(JSON.stringify(mockResult));
+
+      // Check that executeTool was called with correct parameters
+      expect(executeTool).toHaveBeenCalledWith(
+        session,
+        toolName,
+        toolParameters
+      );
+
+      // Verify messages were added to the session
+      const messages = session.messages;
+
+      // Find the tool use message
+      const toolUseMessage = messages.find(
+        msg =>
+          msg.role === 'assistant' &&
+          msg.hasToolCall &&
+          msg.toolCall?.name === toolName
+      );
+      expect(toolUseMessage).toBeDefined();
+      expect(toolUseMessage?.content).toEqual(assistantContent);
+      expect(toolUseMessage?.toolCall?.parameters).toEqual(toolParameters);
+      expect(toolUseMessage?.toolId).toBeDefined();
+
+      // Find the tool result message
+      const toolResultMessage = messages.find(
+        msg =>
+          msg.role === 'assistant' &&
+          msg.isToolResult &&
+          msg.toolId === toolUseMessage?.toolId
+      );
+      expect(toolResultMessage).toBeDefined();
+      expect(toolResultMessage?.content).toEqual(JSON.stringify(mockResult));
+    });
+
+    it('should handle errors during tool execution', async () => {
+      const session = await sessionManager.initializeSession(validConfig);
+      session.serverClients.set('test', mockMCPClient as unknown as Client);
+
+      const toolName = 'list-files';
+      const toolParameters = { path: '/nonexistent' };
+      const assistantContent = 'I need to check the files';
+
+      // Mock executeTool to throw an error
+      const error = new Error('File not found');
+      const executeTool = vi.spyOn(sessionManager as any, 'executeTool');
+      executeTool.mockRejectedValueOnce(error);
+
+      // Execute the tool and get the result
+      const result = await sessionManager.executeToolAndAddResult(
+        session.id,
+        toolName,
+        toolParameters,
+        assistantContent
+      );
+
+      // Verify error result format
+      expect(result).toEqual(`Error: ${error.message}`);
+
+      // Verify messages were added to the session
+      const messages = session.messages;
+
+      // Find the tool use message
+      const toolUseMessage = messages.find(
+        msg =>
+          msg.role === 'assistant' &&
+          msg.hasToolCall &&
+          msg.toolCall?.name === toolName
+      );
+      expect(toolUseMessage).toBeDefined();
+
+      // Find the tool result message with error
+      const toolResultMessage = messages.find(
+        msg =>
+          msg.role === 'assistant' &&
+          msg.isToolResult &&
+          msg.toolId === toolUseMessage?.toolId
+      );
+      expect(toolResultMessage).toBeDefined();
+      expect(toolResultMessage?.content).toEqual(`Error: ${error.message}`);
+    });
+  });
 });
 
 /**

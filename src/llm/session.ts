@@ -53,6 +53,8 @@ import {
   ModelCapability,
   FeatureSet,
 } from './provider/types';
+import { createToolUseMessage, createToolResultMessage } from './utils';
+import { ProviderAdapter } from './provider/provider-adapter';
 import { ModelSwitchOptions } from './types';
 import { getProviderConfig } from '../config/loader';
 import { ModelRegistry } from './provider/model-registry';
@@ -67,6 +69,7 @@ export class SessionManager {
   private serverDiscovery: ServerDiscovery;
   private useSharedServers: boolean;
   private sessionStorage: SessionStorage | null = null;
+  private providerAdapter = new ProviderAdapter();
 
   private formatToolsForLLM(tools: MCPTool[]): Tool[] {
     console.log('[SESSION] Formatting tools for LLM:', tools);
@@ -2615,5 +2618,99 @@ export class SessionManager {
       outputCost,
       totalCost,
     };
+  }
+
+  /**
+   * Executes a tool and adds both the tool use and result messages to the session
+   * @param sessionId The ID of the session
+   * @param toolName The name of the tool to execute
+   * @param toolParameters The parameters to pass to the tool
+   * @param assistantContent The assistant message content related to this tool use
+   * @returns The tool result as a string
+   */
+  async executeToolAndAddResult(
+    sessionId: string,
+    toolName: string,
+    toolParameters: any,
+    assistantContent: string
+  ): Promise<string> {
+    const session = this.getSession(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+
+    // Create the tool use message
+    const toolUseMessage = createToolUseMessage(
+      assistantContent,
+      toolName,
+      toolParameters
+    );
+
+    // Convert to ChatMessage format
+    const chatToolUseMessage: ChatMessage = {
+      role: 'assistant', // Tool use messages are from the assistant
+      content: toolUseMessage.content,
+      timestamp: toolUseMessage.timestamp,
+      hasToolCall: toolUseMessage.hasTool,
+      toolId: toolUseMessage.toolId || '',
+      toolCall: {
+        name: toolUseMessage.toolName || '',
+        parameters: toolUseMessage.toolParameters || {},
+      },
+    };
+
+    // Add to session
+    session.messages.push(chatToolUseMessage);
+
+    try {
+      // Execute the tool
+      const result = await this.executeTool(session, toolName, toolParameters);
+
+      // Format result as string
+      const resultStr =
+        typeof result === 'string' ? result : JSON.stringify(result);
+
+      // Create the tool result message
+      const toolResultMessage = createToolResultMessage(
+        resultStr,
+        toolUseMessage.toolId || ''
+      );
+
+      // Convert to ChatMessage format
+      const chatToolResultMessage: ChatMessage = {
+        role: 'assistant', // Map 'tool' role to 'assistant' for ChatMessage
+        content: toolResultMessage.content,
+        timestamp: toolResultMessage.timestamp,
+        isToolResult: true,
+        toolId: toolResultMessage.toolId || '',
+      };
+
+      // Add to session
+      session.messages.push(chatToolResultMessage);
+
+      return resultStr;
+    } catch (error) {
+      // Handle tool execution errors
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+
+      // Create the tool result message with error
+      const toolResultMessage = createToolResultMessage(
+        `Error: ${errorMessage}`,
+        toolUseMessage.toolId || ''
+      );
+
+      // Convert to ChatMessage format
+      const chatToolResultMessage: ChatMessage = {
+        role: 'assistant', // Map 'tool' role to 'assistant' for ChatMessage
+        content: toolResultMessage.content,
+        timestamp: toolResultMessage.timestamp,
+        isToolResult: true,
+        toolId: toolResultMessage.toolId || '',
+      };
+
+      // Add to session
+      session.messages.push(chatToolResultMessage);
+
+      return `Error: ${errorMessage}`;
+    }
   }
 }

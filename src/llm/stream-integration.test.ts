@@ -9,7 +9,7 @@ import { LLMConfig } from '../config/types';
 // Create AsyncIterator for mock streaming
 function createAsyncIterator(chunks: any[]) {
   let index = 0;
-  
+
   return {
     next: async () => {
       if (index < chunks.length) {
@@ -20,7 +20,7 @@ function createAsyncIterator(chunks: any[]) {
     },
     [Symbol.asyncIterator]() {
       return this;
-    }
+    },
   };
 }
 
@@ -30,11 +30,11 @@ vi.mock('@anthropic-ai/sdk', () => {
   return {
     Anthropic: class {
       constructor() {}
-      
+
       messages = {
-        create: mockCreate
-      }
-    }
+        create: mockCreate,
+      };
+    },
   };
 });
 
@@ -44,8 +44,8 @@ vi.mock('../server/launcher', () => ({
     launchServer: vi.fn().mockResolvedValue({}),
     getServerProcess: vi.fn().mockReturnValue({}),
     stopAll: vi.fn().mockResolvedValue(undefined),
-    cleanup: vi.fn()
-  }))
+    cleanup: vi.fn(),
+  })),
 }));
 
 vi.mock('../server/discovery', () => ({
@@ -53,60 +53,74 @@ vi.mock('../server/discovery', () => ({
     discoverCapabilities: vi.fn().mockResolvedValue({
       client: {
         callTool: vi.fn().mockResolvedValue(['file1.txt', 'file2.txt']),
-        close: vi.fn()
+        close: vi.fn(),
       },
       capabilities: {
-        tools: [{
-          name: 'list_files',
-          description: 'List files in a directory',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              path: {
-                type: 'string',
-                description: 'Path to directory'
-              }
+        tools: [
+          {
+            name: 'list_files',
+            description: 'List files in a directory',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                path: {
+                  type: 'string',
+                  description: 'Path to directory',
+                },
+              },
+              required: ['path'],
             },
-            required: ['path']
-          }
-        }],
-        resources: []
-      }
-    })
-  }))
+          },
+        ],
+        resources: [],
+      },
+    }),
+  })),
 }));
 
 // Mock the global sessions store
 vi.mock('./store', () => ({
-  globalSessions: new Map()
+  globalSessions: new Map(),
 }));
 
 describe('Stream Integration Tests', () => {
   let sessionManager: SessionManager;
-  
+
   beforeEach(() => {
     mockCreate.mockReset();
     sessionManager = new SessionManager();
   });
-  
+
   afterEach(() => {
     vi.clearAllMocks();
   });
-  
+
   it('should stream thinking content from Claude 3.7+', async () => {
     // Create stream chunks with thinking
     const streamChunks = [
       { type: 'thinking', thinking: 'I need to analyze the file structure...' },
       { type: 'thinking', thinking: 'Looking for files in the directory...' },
-      { type: 'content_block_start', content_block: { type: 'text', text: '' } },
-      { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Here are the ' } },
-      { type: 'content_block_delta', delta: { type: 'text_delta', text: 'files I found in your directory.' } },
-      { type: 'message_delta', usage: { input_tokens: 100, output_tokens: 150 } }
+      {
+        type: 'content_block_start',
+        content_block: { type: 'text', text: '' },
+      },
+      {
+        type: 'content_block_delta',
+        delta: { type: 'text_delta', text: 'Here are the ' },
+      },
+      {
+        type: 'content_block_delta',
+        delta: { type: 'text_delta', text: 'files I found in your directory.' },
+      },
+      {
+        type: 'message_delta',
+        usage: { input_tokens: 100, output_tokens: 150 },
+      },
     ];
-    
+
     // Mock the stream response
     mockCreate.mockResolvedValueOnce(createAsyncIterator(streamChunks));
-    
+
     // Create test config
     const config: LLMConfig = {
       type: 'claude',
@@ -115,57 +129,98 @@ describe('Stream Integration Tests', () => {
       system_prompt: 'You are a helpful assistant with access to tools.',
       thinking: {
         enabled: true,
-        budget_tokens: 1000
+        budget_tokens: 1000,
       },
       servers: {
         test_server: {
           command: 'test',
           args: ['--flag'],
-          env: {}
-        }
-      }
+          env: {},
+        },
+      },
     };
-    
+
     // Initialize session
     const session = await sessionManager.initializeSession(config);
-    
+
     // Create array to collect stream chunks
     const collectedChunks: any[] = [];
-    
+
     // Send message and collect stream chunks
-    const stream = sessionManager.sendMessageStream(session.id, 'List files in my directory');
+    const stream = sessionManager.sendMessageStream(
+      session.id,
+      'List files in my directory'
+    );
     for await (const chunk of stream) {
       collectedChunks.push(chunk);
     }
-    
+
     // Verify thinking chunks were received
-    const thinkingChunks = collectedChunks.filter(chunk => chunk.type === 'thinking');
+    const thinkingChunks = collectedChunks.filter(
+      chunk => chunk.type === 'thinking'
+    );
     expect(thinkingChunks.length).toBe(2);
-    expect(thinkingChunks[0].content).toBe('I need to analyze the file structure...');
-    
+    expect(thinkingChunks[0].content).toBe(
+      'I need to analyze the file structure...'
+    );
+
     // Verify content chunks were received
-    const contentChunks = collectedChunks.filter(chunk => chunk.type === 'content');
+    const contentChunks = collectedChunks.filter(
+      chunk => chunk.type === 'content'
+    );
     expect(contentChunks.length).toBe(2);
-    expect(contentChunks.map(c => c.content).join('')).toBe('Here are the files I found in your directory.');
-    
+    expect(contentChunks.map(c => c.content).join('')).toBe(
+      'Here are the files I found in your directory.'
+    );
+
     // Verify done message is sent
-    expect(collectedChunks[collectedChunks.length-1].type).toBe('done');
+    expect(collectedChunks[collectedChunks.length - 1].type).toBe('done');
   });
-  
+
   it('should stream tool call events', async () => {
     // Create stream chunks with tool calls
     const streamChunks = [
-      { type: 'content_block_start', content_block: { type: 'text', text: '' } },
-      { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Let me check ' } },
-      { type: 'content_block_delta', delta: { type: 'text_delta', text: 'what files are in your directory.' } },
-      { type: 'content_block_start', content_block: { type: 'tool_use', id: 'tool_1', name: 'list_files', input: { path: '/home/user' } } },
-      { type: 'content_block_delta', delta: { type: 'tool_use_delta', id: 'tool_1', input: { path: '/home/user' } } },
-      { type: 'message_delta', usage: { input_tokens: 100, output_tokens: 150 } }
+      {
+        type: 'content_block_start',
+        content_block: { type: 'text', text: '' },
+      },
+      {
+        type: 'content_block_delta',
+        delta: { type: 'text_delta', text: 'Let me check ' },
+      },
+      {
+        type: 'content_block_delta',
+        delta: {
+          type: 'text_delta',
+          text: 'what files are in your directory.',
+        },
+      },
+      {
+        type: 'content_block_start',
+        content_block: {
+          type: 'tool_use',
+          id: 'tool_1',
+          name: 'list_files',
+          input: { path: '/home/user' },
+        },
+      },
+      {
+        type: 'content_block_delta',
+        delta: {
+          type: 'tool_use_delta',
+          id: 'tool_1',
+          input: { path: '/home/user' },
+        },
+      },
+      {
+        type: 'message_delta',
+        usage: { input_tokens: 100, output_tokens: 150 },
+      },
     ];
-    
+
     // Mock the stream response
     mockCreate.mockResolvedValueOnce(createAsyncIterator(streamChunks));
-    
+
     // Create test config
     const config: LLMConfig = {
       type: 'claude',
@@ -176,33 +231,40 @@ describe('Stream Integration Tests', () => {
         test_server: {
           command: 'test',
           args: ['--flag'],
-          env: {}
-        }
-      }
+          env: {},
+        },
+      },
     };
-    
+
     // Initialize session
     const session = await sessionManager.initializeSession(config);
-    
+
     // Create array to collect stream chunks
     const collectedChunks: any[] = [];
-    
+
     // Send message and collect stream chunks
-    const stream = sessionManager.sendMessageStream(session.id, 'List files in my directory');
+    const stream = sessionManager.sendMessageStream(
+      session.id,
+      'List files in my directory'
+    );
     for await (const chunk of stream) {
       collectedChunks.push(chunk);
     }
-    
+
     // Verify content chunks were received
-    const contentChunks = collectedChunks.filter(chunk => chunk.type === 'content');
+    const contentChunks = collectedChunks.filter(
+      chunk => chunk.type === 'content'
+    );
     expect(contentChunks.length).toBe(2);
-    
+
     // Verify tool start event was received
-    const toolChunks = collectedChunks.filter(chunk => chunk.type === 'tool_start');
+    const toolChunks = collectedChunks.filter(
+      chunk => chunk.type === 'tool_start'
+    );
     expect(toolChunks.length).toBe(1);
     expect(toolChunks[0].content).toContain('list_files');
-    
+
     // Verify done message is sent
-    expect(collectedChunks[collectedChunks.length-1].type).toBe('done');
+    expect(collectedChunks[collectedChunks.length - 1].type).toBe('done');
   });
 });

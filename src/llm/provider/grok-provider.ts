@@ -7,9 +7,10 @@ import {
   LLMResponseChunk,
 } from './types';
 import { MCPTool } from '../types';
-import { ToolCall } from '../types';
+import { ToolCall, ConversationMessage } from '../types';
 import { countTokens } from '../token-counter';
 import { GrokClient, GrokCompletionOptions, GrokMessage } from '../grok-client';
+import { ProviderAdapter } from './provider-adapter';
 
 /**
  * Grok provider implementation
@@ -106,6 +107,32 @@ export class GrokProvider implements LLMProviderInterface {
     userMessage: string,
     options: MessageOptions
   ): GrokMessage[] {
+    // Check if we should use the provider adapter for formatting
+    if (options.providerOptions?.useProviderFormatting) {
+      const providerAdapter = new ProviderAdapter();
+
+      // Get existing messages
+      const existingMessages =
+        (options.providerOptions?.messages as ConversationMessage[]) || [];
+
+      // Add the new user message to the messages array
+      const messagesWithNewMessage = [
+        ...existingMessages,
+        {
+          role: 'user',
+          content: userMessage,
+          timestamp: new Date(),
+        } as ConversationMessage,
+      ];
+
+      // Format messages using the provider adapter
+      return providerAdapter.formatMessagesForProvider(
+        messagesWithNewMessage,
+        'grok'
+      ) as GrokMessage[];
+    }
+
+    // Legacy formatting method
     const messages: GrokMessage[] = [];
 
     // Add history messages if provided

@@ -8,8 +8,9 @@ import {
   LLMResponseChunk,
 } from './types';
 import { MCPTool } from '../types';
-import { ToolCall } from '../types';
+import { ToolCall, ConversationMessage } from '../types';
 import { countTokens } from '../token-counter';
+import { ProviderAdapter } from './provider-adapter';
 
 /**
  * OpenAI GPT provider implementation
@@ -116,6 +117,32 @@ export class OpenAIProvider implements LLMProviderInterface {
    * Convert messages to OpenAI format
    */
   private formatMessages(userMessage: string, options: MessageOptions): any[] {
+    // Check if we should use the provider adapter for formatting
+    if (options.providerOptions?.useProviderFormatting) {
+      const providerAdapter = new ProviderAdapter();
+
+      // Get existing messages
+      const existingMessages =
+        (options.providerOptions?.messages as ConversationMessage[]) || [];
+
+      // Add the new user message to the messages array
+      const messagesWithNewMessage = [
+        ...existingMessages,
+        {
+          role: 'user',
+          content: userMessage,
+          timestamp: new Date(),
+        } as ConversationMessage,
+      ];
+
+      // Format messages using the provider adapter
+      return providerAdapter.formatMessagesForProvider(
+        messagesWithNewMessage,
+        'openai'
+      );
+    }
+
+    // Legacy formatting method
     const messages: any[] = [];
 
     // Add system message if provided

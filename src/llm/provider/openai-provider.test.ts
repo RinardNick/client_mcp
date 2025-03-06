@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OpenAIProvider } from './openai-provider';
 import { MessageOptions } from './types';
 import { MCPTool } from '../types';
+import { ProviderAdapter } from './provider-adapter';
+import { ConversationMessage } from '../types';
 
 // Mock the OpenAI SDK
 vi.mock('openai', () => {
@@ -72,6 +74,24 @@ vi.mock('openai', () => {
 vi.mock('../token-counter', () => ({
   countTokens: vi.fn().mockImplementation(text => Math.ceil(text.length / 4)),
 }));
+
+// Mock the provider adapter
+vi.mock('./provider-adapter', () => {
+  const mockFormatMessagesForProvider = vi
+    .fn()
+    .mockImplementation((messages, provider) => {
+      return messages.map(msg => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+    });
+
+  return {
+    ProviderAdapter: vi.fn().mockImplementation(() => ({
+      formatMessagesForProvider: mockFormatMessagesForProvider,
+    })),
+  };
+});
 
 describe('OpenAIProvider', () => {
   let provider: OpenAIProvider;
@@ -175,5 +195,75 @@ describe('OpenAIProvider', () => {
 
     const toolCall = provider.parseToolCall(mockResponse);
     expect(toolCall).toBeNull();
+  });
+
+  it('should use provider adapter for message formatting in streamMessage', async () => {
+    await provider.initialize({
+      apiKey: 'test-key',
+      defaultModel: 'gpt-4-turbo',
+    });
+
+    const messages: ConversationMessage[] = [
+      {
+        role: 'user',
+        content: 'Previous message',
+        timestamp: new Date(),
+      },
+    ];
+
+    // Set up options with useProviderFormatting inside providerOptions
+    const options: MessageOptions = {
+      model: 'gpt-4-turbo',
+      providerOptions: {
+        messages: messages,
+        useProviderFormatting: true,
+      },
+      maxTokens: 1000,
+      systemMessage: 'You are a helpful assistant',
+    };
+
+    // Use the stream to get the first chunk
+    const stream = provider.streamMessage('New message', options);
+    const chunk = await stream.next();
+
+    // We expect the provider adapter's formatMessagesForProvider to be called
+    const mockProviderAdapter = vi.mocked(ProviderAdapter);
+    expect(mockProviderAdapter).toHaveBeenCalled();
+  });
+
+  it('should use provider adapter for message formatting in sendMessage', async () => {
+    await provider.initialize({
+      apiKey: 'test-key',
+      defaultModel: 'gpt-4-turbo',
+    });
+
+    const messages: ConversationMessage[] = [
+      {
+        role: 'user',
+        content: 'Previous message',
+        timestamp: new Date(),
+      },
+    ];
+
+    // Set up options with useProviderFormatting inside providerOptions
+    const options: MessageOptions = {
+      model: 'gpt-4-turbo',
+      providerOptions: {
+        messages: messages,
+        useProviderFormatting: true,
+      },
+      maxTokens: 1000,
+      systemMessage: 'You are a helpful assistant',
+    };
+
+    // Send the message
+    const response = await provider.sendMessage('New message', options);
+
+    // We expect the provider adapter's formatMessagesForProvider to be called
+    const mockProviderAdapter = vi.mocked(ProviderAdapter);
+    expect(mockProviderAdapter).toHaveBeenCalled();
+
+    // Verify we got a response
+    expect(response.content).toBe('This is a mock response');
   });
 });

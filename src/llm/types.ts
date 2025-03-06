@@ -317,3 +317,20 @@ export interface CostEstimate {
    */
   totalCost: number;
 }
+
+/**
+ * Enhanced message interface for tool tracking and provider compatibility
+ */
+export interface ConversationMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  timestamp: Date;
+
+  // Tool tracking fields
+  hasTool?: boolean; // Flag for messages with tool calls
+  isToolResult?: boolean; // Flag for tool result messages
+  toolId?: string; // Unique ID to link tool calls with results
+  toolName?: string; // Name of the tool being called
+  toolParameters?: any; // Parameters passed to the tool
+  previousToolId?: string; // For linking tool results to their tool calls
+}

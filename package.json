@@ -1,6 +1,6 @@
 {
   "name": "@rinardnick/client_mcp",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "TypeScript MCP client with Anthropic Claude integration",
   "type": "module",
   "main": "dist/index.js",

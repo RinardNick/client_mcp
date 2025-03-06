@@ -1,4 +1,7 @@
 import { ConversationMessage } from '../types';
+import { AnthropicFormatter } from './formatters/anthropic-formatter';
+import { OpenAIFormatter } from './formatters/openai-formatter';
+import { GrokFormatter } from './formatters/grok-formatter';
 
 /**
  * Interface for provider-specific message formatters
@@ -70,9 +73,8 @@ export class ProviderAdapter {
    * Will be expanded with actual implementations in subsequent steps
    */
   private registerDefaultFormatters(): void {
-    // Placeholder for now, will be implemented in subsequent steps
-    // this.registerFormatter('anthropic', new AnthropicFormatter());
-    // this.registerFormatter('openai', new OpenAIFormatter());
-    // this.registerFormatter('grok', new GrokFormatter());
+    this.registerFormatter('anthropic', new AnthropicFormatter());
+    this.registerFormatter('openai', new OpenAIFormatter());
+    this.registerFormatter('grok', new GrokFormatter());
   }
 }

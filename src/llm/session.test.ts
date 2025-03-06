@@ -6,6 +6,7 @@ import { Anthropic } from '@anthropic-ai/sdk';
 import { EventEmitter } from 'stream';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import * as dotenv from 'dotenv';
+import { ProviderAdapter } from './provider/provider-adapter';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -14,6 +15,12 @@ dotenv.config();
 const mockAnthropicInstance = {
   messages: {
     create: vi.fn().mockImplementation(options => {
+      // Log when this mock is called for debugging
+      console.log(
+        'mockAnthropicInstance.messages.create called with:',
+        options.messages?.[0]?.content
+      );
+
       // Verify tools are properly passed
       if (options.tools) {
         console.log('Tools passed to mock:', options.tools);
@@ -201,7 +208,23 @@ describe('SessionManager', () => {
       system_prompt: 'You are a helpful assistant.',
     };
 
+    // Mock the ProviderAdapter.formatMessagesForProvider method
+    const mockProviderAdapter = {
+      formatMessagesForProvider: vi
+        .fn()
+        .mockImplementation((messages, provider) => {
+          // Simple pass-through mock that preserves the format expected by tests
+          return messages.map(msg => ({
+            role: msg.role === 'system' ? 'user' : msg.role,
+            content: msg.content,
+            ...(msg.isToolResult && { tool_result: true }),
+          }));
+        }),
+    };
+
     sessionManager = new SessionManager();
+    // Replace the providerAdapter with our mock
+    (sessionManager as any).providerAdapter = mockProviderAdapter;
   });
 
   it('should initialize a new session with valid config', async () => {

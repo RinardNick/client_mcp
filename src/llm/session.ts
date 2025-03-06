@@ -940,16 +940,26 @@ export class SessionManager {
       // Update token metrics
       this.updateTokenMetrics(sessionId);
 
+      // Format messages for the provider
+      const formattedMessages = this.providerAdapter.formatMessagesForProvider(
+        session.messages.map(msg => ({
+          role: msg.role,
+          content: msg.content,
+          timestamp: msg.timestamp || new Date(),
+          hasTool: msg.hasToolCall,
+          isToolResult: msg.isToolResult,
+          toolId: msg.toolId,
+          toolName: msg.toolCall?.name,
+          toolParameters: msg.toolCall?.parameters,
+        })),
+        session.config.type // Use the provider type from config
+      );
+
       // Prepare streaming API request parameters
       const streamApiParams: any = {
         model: session.config.model,
         max_tokens: 1024,
-        messages: session.messages.map(msg => ({
-          role: msg.role === 'system' ? 'user' : msg.role,
-          content: msg.content,
-          // Include tool_result flag for tool result messages
-          ...(msg.isToolResult && { tool_result: true }),
-        })),
+        messages: formattedMessages,
         tools: tools,
         stream: true,
       };
@@ -1774,6 +1784,226 @@ export class SessionManager {
         type: 'error',
         error:
           error instanceof Error ? error.message : 'Unknown error occurred',
+      };
+    }
+  }
+
+  /**
+   * Creates a continuation stream after tool execution
+   * @param sessionId The ID of the session
+   * @returns An async generator that yields chunks of the response
+   */
+  async *createContinuationStream(
+    sessionId: string
+  ): AsyncGenerator<{ type: string; content?: string; error?: string }> {
+    try {
+      console.log('[SESSION] Getting session for continuation:', sessionId);
+      const session = this.getSession(sessionId);
+
+      // Format tools for the LLM if available
+      const tools =
+        session.tools.length > 0
+          ? this.formatToolsForLLM(session.tools)
+          : undefined;
+      console.log('[SESSION] Formatted tools for continuation:', tools);
+
+      // Format messages for the provider
+      const formattedMessages = this.providerAdapter.formatMessagesForProvider(
+        session.messages.map(msg => ({
+          role: msg.role,
+          content: msg.content,
+          timestamp: msg.timestamp || new Date(),
+          hasTool: msg.hasToolCall,
+          isToolResult: msg.isToolResult,
+          toolId: msg.toolId,
+          toolName: msg.toolCall?.name,
+          toolParameters: msg.toolCall?.parameters,
+        })),
+        session.config.type // Use the provider type from config
+      );
+
+      // Prepare API request parameters
+      const apiParams: any = {
+        model: session.config.model,
+        max_tokens: 1024,
+        messages: formattedMessages,
+        tools: tools,
+        stream: true,
+      };
+
+      // Add thinking parameter for Claude 3.7+ models
+      if (supportsThinking(session.config.model)) {
+        console.log(
+          '[SESSION] Model supports thinking for continuation, adding thinking parameter'
+        );
+
+        // If thinking is explicitly disabled in config, don't add it
+        if (session.config.thinking?.enabled !== false) {
+          // Get budget from config or use default
+          const budgetTokens =
+            session.config.thinking?.budget_tokens ||
+            getDefaultThinkingBudget(session.config.model);
+
+          apiParams.thinking = {
+            type: 'enabled',
+            budget_tokens: budgetTokens,
+          };
+
+          console.log(
+            `[SESSION] Added thinking with budget: ${budgetTokens} tokens`
+          );
+        }
+      }
+
+      // Send message to Anthropic with streaming
+      console.log('[SESSION] Creating Anthropic continuation stream');
+      const stream = await this.anthropic.messages.create(apiParams);
+
+      console.log(
+        '[SESSION] Starting to process Anthropic continuation stream'
+      );
+
+      // Use the Anthropic SDK's built-in async iterator
+      const iterator = (stream as any)[Symbol.asyncIterator]();
+      let iterResult = await iterator.next();
+
+      // Variables for tracking the current tool call being built
+      let collectingToolUse = false;
+      let currentToolName = '';
+      let currentToolParametersJson = '';
+      let assistantContent = ''; // Track accumulated content
+
+      while (!iterResult.done) {
+        const chunk = iterResult.value;
+
+        if (
+          chunk.type === 'content_block_delta' &&
+          chunk.delta.type === 'text_delta'
+        ) {
+          // Accumulate assistant content
+          const text = chunk.delta.text || '';
+          assistantContent += text;
+
+          // Check if this is part of a tool call using legacy format <tool> tags
+          if (text.includes('<tool>') && !collectingToolUse) {
+            // Start of a tool call
+            collectingToolUse = true;
+            const startPos = text.indexOf('<tool>') + 6;
+            const endPos = text.indexOf('</tool>');
+
+            if (endPos > startPos) {
+              // Complete tool call in a single chunk
+              const toolContent = text.substring(startPos, endPos).trim();
+              const spaceIndex = toolContent.indexOf(' ');
+
+              if (spaceIndex > -1) {
+                currentToolName = toolContent.slice(0, spaceIndex);
+                currentToolParametersJson = toolContent.slice(spaceIndex + 1);
+
+                // Store assistant message before tool execution
+                const preToolContent = text.substring(0, startPos - 6).trim();
+                if (preToolContent) {
+                  const preToolMessage = {
+                    role: 'assistant' as const,
+                    content: preToolContent,
+                    timestamp: new Date(),
+                  };
+                  session.messages.push(preToolMessage);
+                }
+
+                // Yield the tool_start event
+                yield {
+                  type: 'tool_start',
+                  content: `Using tool: ${currentToolName}`,
+                };
+
+                // Execute the tool
+                if (session.toolCallCount >= session.maxToolCalls) {
+                  console.log(
+                    '[SESSION] Tool call limit reached, not executing more tools'
+                  );
+                  yield {
+                    type: 'content',
+                    content: `I've reached my tool usage limit of ${session.maxToolCalls} calls.`,
+                  };
+                } else {
+                  try {
+                    session.toolCallCount++;
+                    console.log(
+                      `[SESSION] Executing tool ${currentToolName} with parameters: ${currentToolParametersJson}`
+                    );
+
+                    // Parse parameters
+                    const parameters = JSON.parse(currentToolParametersJson);
+
+                    // Execute the tool and add result using our new method
+                    const resultStr = await this.executeToolAndAddResult(
+                      sessionId,
+                      currentToolName,
+                      parameters,
+                      preToolContent || assistantContent
+                    );
+
+                    // Yield the tool result
+                    yield {
+                      type: 'tool_result',
+                      content: resultStr,
+                    };
+
+                    // Create a new continuation stream
+                    for await (const continuationChunk of this.createContinuationStream(
+                      sessionId
+                    )) {
+                      yield continuationChunk;
+                    }
+
+                    // Exit this stream since we've handed off to the continuation
+                    return;
+                  } catch (error) {
+                    console.error('[SESSION] Error executing tool:', error);
+                    yield {
+                      type: 'error',
+                      error: `Error executing tool: ${
+                        error instanceof Error ? error.message : String(error)
+                      }`,
+                    };
+                  }
+                }
+
+                // Reset tool collection
+                collectingToolUse = false;
+                currentToolName = '';
+                currentToolParametersJson = '';
+              }
+            }
+          } else if (!collectingToolUse) {
+            // Regular content, yield it
+            yield {
+              type: 'content',
+              content: text,
+            };
+          }
+        } else if (chunk.type === 'message_stop') {
+          // End of message, store the final assistant message if not empty
+          if (assistantContent && !collectingToolUse) {
+            session.messages.push({
+              role: 'assistant',
+              content: assistantContent,
+              timestamp: new Date(),
+            });
+          }
+        }
+
+        // Get next chunk
+        iterResult = await iterator.next();
+      }
+    } catch (error) {
+      console.error('[SESSION] Error in createContinuationStream:', error);
+      yield {
+        type: 'error',
+        error: `Error: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
       };
     }
   }

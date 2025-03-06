@@ -45,10 +45,19 @@ const mockAnthropicInstance = {
                 index: 0,
                 delta: {
                   type: 'text_delta',
-                  text: 'I found these files: test.txt',
+                  text: 'I found these files: ',
                 },
               };
-            } else {
+
+              yield {
+                type: 'content_block_delta',
+                index: 0,
+                delta: {
+                  type: 'text_delta',
+                  text: 'file1.txt and file2.txt',
+                },
+              };
+            } else if (isListFilesRequest) {
               yield {
                 type: 'content_block_delta',
                 index: 0,
@@ -61,6 +70,25 @@ const mockAnthropicInstance = {
                 delta: {
                   type: 'text_delta',
                   text: '\n<tool>list-files {"path": "/tmp"}</tool>',
+                },
+              };
+
+              // Add these yields to simulate the continuation stream
+              yield {
+                type: 'content_block_delta',
+                index: 0,
+                delta: {
+                  type: 'text_delta',
+                  text: 'I found these files: ',
+                },
+              };
+
+              yield {
+                type: 'content_block_delta',
+                index: 0,
+                delta: {
+                  type: 'text_delta',
+                  text: 'file1.txt and file2.txt',
                 },
               };
             }
@@ -888,6 +916,73 @@ describe('SessionManager', () => {
       );
       expect(toolResultMessage).toBeDefined();
       expect(toolResultMessage?.content).toEqual(`Error: ${error.message}`);
+    });
+  });
+
+  describe('Message Formatting for API Calls', () => {
+    it('should format messages for the provider in sendMessageStream', async () => {
+      const session = await sessionManager.initializeSession(validConfig);
+      session.serverClients.set('test', mockMCPClient as unknown as Client);
+
+      // Mock the formatMessagesForProvider method
+      const formatSpy = vi.spyOn(
+        sessionManager['providerAdapter'],
+        'formatMessagesForProvider'
+      );
+      formatSpy.mockReturnValue([
+        { role: 'user', content: 'formatted message' },
+      ]);
+
+      // Start the stream
+      const stream = sessionManager.sendMessageStream(session.id, 'Hello');
+
+      // Just get the first chunk to trigger the method
+      await stream.next();
+
+      // Verify formatMessagesForProvider was called with correct parameters
+      expect(formatSpy).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.stringContaining('claude') // The provider from validConfig
+      );
+    });
+
+    it('should format messages for the provider in createContinuationStream', async () => {
+      const session = await sessionManager.initializeSession(validConfig);
+      session.serverClients.set('test', mockMCPClient as unknown as Client);
+
+      // Add some messages to the session
+      session.messages.push({
+        role: 'user',
+        content: 'Hello',
+        timestamp: new Date(),
+      });
+
+      session.messages.push({
+        role: 'assistant',
+        content: 'Hi there',
+        timestamp: new Date(),
+      });
+
+      // Mock the formatMessagesForProvider method
+      const formatSpy = vi.spyOn(
+        sessionManager['providerAdapter'],
+        'formatMessagesForProvider'
+      );
+      formatSpy.mockReturnValue([
+        { role: 'user', content: 'formatted message' },
+      ]);
+
+      // Start the continuation stream
+      const stream = sessionManager.createContinuationStream(session.id);
+
+      // Just get the first chunk to trigger the method
+      await stream.next();
+
+      // Verify formatMessagesForProvider was called with correct parameters
+      expect(formatSpy).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.stringContaining('claude') // The provider from validConfig
+      );
     });
   });
 });

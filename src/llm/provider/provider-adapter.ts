@@ -65,6 +65,7 @@ export class ProviderAdapter {
     if (!formatter) {
       throw new Error(`No message formatter found for provider: ${provider}`);
     }
+
     return formatter.formatMessages(messages);
   }
 

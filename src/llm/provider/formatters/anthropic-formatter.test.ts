@@ -27,16 +27,20 @@ describe('AnthropicFormatter', () => {
 
     const formatted = formatter.formatMessages(messages);
 
-    expect(formatted).toHaveLength(3);
-    expect(formatted[0]).toEqual({
-      role: 'system',
-      content: 'You are a helpful assistant.',
-    });
-    expect(formatted[1]).toEqual({
+    // Expect object with messages and system properties
+    expect(formatted).toHaveProperty('messages');
+    expect(formatted).toHaveProperty('system');
+
+    // Check system message
+    expect(formatted.system).toBe('You are a helpful assistant.');
+
+    // Check regular messages
+    expect(formatted.messages).toHaveLength(2);
+    expect(formatted.messages[0]).toEqual({
       role: 'user',
       content: 'Hello, how are you?',
     });
-    expect(formatted[2]).toEqual({
+    expect(formatted.messages[1]).toEqual({
       role: 'assistant',
       content: 'I am doing well, thank you for asking!',
     });
@@ -75,16 +79,20 @@ describe('AnthropicFormatter', () => {
 
     const formatted = formatter.formatMessages(messages);
 
-    expect(formatted).toHaveLength(4); // User, tool use + result, assistant response
+    // Expect object with messages property
+    expect(formatted).toHaveProperty('messages');
+
+    // Check messages
+    expect(formatted.messages).toHaveLength(4); // User, tool use + result, assistant response
 
     // Check user message
-    expect(formatted[0]).toEqual({
+    expect(formatted.messages[0]).toEqual({
       role: 'user',
       content: 'What files are in my current directory?',
     });
 
     // Check tool use message
-    expect(formatted[1]).toEqual({
+    expect(formatted.messages[1]).toEqual({
       role: 'assistant',
       content: [
         {
@@ -101,7 +109,7 @@ describe('AnthropicFormatter', () => {
     });
 
     // Check tool result
-    expect(formatted[2]).toEqual({
+    expect(formatted.messages[2]).toEqual({
       role: 'user',
       content: [
         {
@@ -113,7 +121,7 @@ describe('AnthropicFormatter', () => {
     });
 
     // Check final assistant response
-    expect(formatted[3]).toEqual({
+    expect(formatted.messages[3]).toEqual({
       role: 'assistant',
       content: 'I found 2 files: file1.txt and file2.txt',
     });
@@ -165,17 +173,19 @@ describe('AnthropicFormatter', () => {
 
     const formatted = formatter.formatMessages(messages);
 
-    expect(formatted).toHaveLength(5);
+    // Expect object with messages property
+    expect(formatted).toHaveProperty('messages');
+    expect(formatted.messages).toHaveLength(5);
 
     // First tool call pair
-    expect(formatted[1].content[1].id).toBe(toolId1);
-    expect(formatted[1].content[1].name).toBe('list_files');
-    expect(formatted[2].content[0].tool_use_id).toBe(toolId1);
+    expect(formatted.messages[1].content[1].id).toBe(toolId1);
+    expect(formatted.messages[1].content[1].name).toBe('list_files');
+    expect(formatted.messages[2].content[0].tool_use_id).toBe(toolId1);
 
     // Second tool call pair
-    expect(formatted[3].content[1].id).toBe(toolId2);
-    expect(formatted[3].content[1].name).toBe('get_weather');
-    expect(formatted[4].content[0].tool_use_id).toBe(toolId2);
+    expect(formatted.messages[3].content[1].id).toBe(toolId2);
+    expect(formatted.messages[3].content[1].name).toBe('get_weather');
+    expect(formatted.messages[4].content[0].tool_use_id).toBe(toolId2);
   });
 
   it('should format individual tool call message correctly', () => {

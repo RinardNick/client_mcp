@@ -941,7 +941,7 @@ export class SessionManager {
       this.updateTokenMetrics(sessionId);
 
       // Format messages for the provider
-      const formattedMessages = this.providerAdapter.formatMessagesForProvider(
+      const formattedResult = this.providerAdapter.formatMessagesForProvider(
         session.messages.map(msg => ({
           role: msg.role,
           content: msg.content,
@@ -955,14 +955,27 @@ export class SessionManager {
         session.config.type // Use the provider type from config
       );
 
-      // Prepare streaming API request parameters
-      const streamApiParams: any = {
+      // Prepare API request parameters
+      const apiParams: any = {
         model: session.config.model,
         max_tokens: 1024,
-        messages: formattedMessages,
         tools: tools,
         stream: true,
       };
+
+      // Handle Anthropic's specific format which returns {messages, system}
+      if (session.config.type === 'anthropic' && formattedResult.messages) {
+        console.log(
+          '[SESSION] Using structured format for Anthropic continuation with separate messages and system'
+        );
+        apiParams.messages = formattedResult.messages;
+        if (formattedResult.system) {
+          apiParams.system = formattedResult.system;
+        }
+      } else {
+        // For other providers or backward compatibility
+        apiParams.messages = formattedResult;
+      }
 
       // Add thinking parameter for Claude 3.7+ models
       if (supportsThinking(session.config.model)) {
@@ -977,7 +990,7 @@ export class SessionManager {
             session.config.thinking?.budget_tokens ||
             getDefaultThinkingBudget(session.config.model);
 
-          streamApiParams.thinking = {
+          apiParams.thinking = {
             type: 'enabled',
             budget_tokens: budgetTokens,
           };
@@ -991,7 +1004,7 @@ export class SessionManager {
       try {
         // Send message to Anthropic with streaming
         console.log('[SESSION] Creating Anthropic stream');
-        const stream = await this.anthropic.messages.create(streamApiParams);
+        const stream = await this.anthropic.messages.create(apiParams);
 
         console.log('[SESSION] Starting to process Anthropic stream');
 

@@ -108,6 +108,7 @@ export class AnthropicProvider implements LLMProviderInterface {
 
     // Prepare messages array with existing history and new message
     let messages: any[] = (options.providerOptions?.messages as any[]) || [];
+    let systemMessageFromFormatter: string | undefined;
 
     // Check if we should use the provider adapter for formatting
     if (options.providerOptions?.useProviderFormatting) {
@@ -124,10 +125,27 @@ export class AnthropicProvider implements LLMProviderInterface {
       ];
 
       // Format messages using the provider adapter
-      messages = providerAdapter.formatMessagesForProvider(
+      const formattedResult = providerAdapter.formatMessagesForProvider(
         messagesWithNewMessage,
         'anthropic'
       );
+
+      // Handle Anthropic's special format with top-level system parameter
+      if (formattedResult && typeof formattedResult === 'object') {
+        // Check if the formatter returned an object with messages and system properties
+        if ('messages' in formattedResult) {
+          messages = formattedResult.messages;
+          if ('system' in formattedResult) {
+            systemMessageFromFormatter = formattedResult.system;
+          }
+        } else {
+          // Fall back to treating the result as just messages
+          messages = formattedResult as any[];
+        }
+      } else {
+        // Fall back to treating the result as just messages
+        messages = formattedResult as any[];
+      }
     } else {
       // Add the new user message directly (legacy method)
       messages.push({
@@ -149,8 +167,10 @@ export class AnthropicProvider implements LLMProviderInterface {
       messages: messages,
     };
 
-    // Add system message if provided
-    if (options.systemMessage) {
+    // Add system message if provided - prefer the formatter's system message over the options
+    if (systemMessageFromFormatter) {
+      apiParams.system = systemMessageFromFormatter;
+    } else if (options.systemMessage) {
       apiParams.system = options.systemMessage;
     }
 
@@ -254,6 +274,7 @@ export class AnthropicProvider implements LLMProviderInterface {
 
     // Prepare messages array with existing history and new message
     let messages: any[] = (options.providerOptions?.messages as any[]) || [];
+    let systemMessageFromFormatter: string | undefined;
 
     // Check if we should use the provider adapter for formatting
     if (options.providerOptions?.useProviderFormatting) {
@@ -270,10 +291,27 @@ export class AnthropicProvider implements LLMProviderInterface {
       ];
 
       // Format messages using the provider adapter
-      messages = providerAdapter.formatMessagesForProvider(
+      const formattedResult = providerAdapter.formatMessagesForProvider(
         messagesWithNewMessage,
         'anthropic'
       );
+
+      // Handle Anthropic's special format with top-level system parameter
+      if (formattedResult && typeof formattedResult === 'object') {
+        // Check if the formatter returned an object with messages and system properties
+        if ('messages' in formattedResult) {
+          messages = formattedResult.messages;
+          if ('system' in formattedResult) {
+            systemMessageFromFormatter = formattedResult.system;
+          }
+        } else {
+          // Fall back to treating the result as just messages
+          messages = formattedResult as any[];
+        }
+      } else {
+        // Fall back to treating the result as just messages
+        messages = formattedResult as any[];
+      }
     } else {
       // Add the new user message directly (legacy method)
       messages.push({
@@ -296,8 +334,10 @@ export class AnthropicProvider implements LLMProviderInterface {
       stream: true,
     };
 
-    // Add system message if provided
-    if (options.systemMessage) {
+    // Add system message if provided - prefer the formatter's system message over the options
+    if (systemMessageFromFormatter) {
+      streamApiParams.system = systemMessageFromFormatter;
+    } else if (options.systemMessage) {
       streamApiParams.system = options.systemMessage;
     }
 

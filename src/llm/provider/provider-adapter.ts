@@ -12,7 +12,7 @@ export interface ProviderMessageFormatter {
    * @param messages The messages to format
    * @returns Formatted messages according to provider requirements
    */
-  formatMessages(messages: ConversationMessage[]): any[];
+  formatMessages(messages: ConversationMessage[]): any;
 
   /**
    * Format a tool call message for a specific provider
@@ -60,7 +60,7 @@ export class ProviderAdapter {
   formatMessagesForProvider(
     messages: ConversationMessage[],
     provider: string
-  ): any[] {
+  ): any {
     const formatter = this.formatters[provider];
     if (!formatter) {
       throw new Error(`No message formatter found for provider: ${provider}`);

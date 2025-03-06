@@ -8,22 +8,32 @@ export class AnthropicFormatter implements ProviderMessageFormatter {
   /**
    * Format a list of messages for Anthropic's API
    * @param messages The messages to format
-   * @returns Formatted messages for Anthropic API
+   * @returns Formatted messages for Anthropic API with system extracted
    */
-  formatMessages(messages: ConversationMessage[]): any[] {
+  formatMessages(messages: ConversationMessage[]): any {
     const formattedMessages = [];
     const toolUseMessages = new Map<string, ConversationMessage>();
+    let systemMessage: string | undefined;
 
-    // First collect all tool use messages
+    // First collect all tool use messages and extract system message
     messages.forEach(msg => {
       if (msg.hasTool && msg.toolId) {
         toolUseMessages.set(msg.toolId, msg);
+      }
+
+      // Extract system message - we'll handle it differently
+      if (msg.role === 'system') {
+        systemMessage = msg.content;
+        return; // Skip adding to formattedMessages
       }
     });
 
     // Process messages sequentially
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i];
+
+      // Skip system messages - handled separately
+      if (msg.role === 'system') continue;
 
       // Skip tool use messages - they'll be paired with results
       if (msg.hasTool) continue;
@@ -72,7 +82,17 @@ export class AnthropicFormatter implements ProviderMessageFormatter {
       }
     }
 
-    return formattedMessages;
+    // Return an object with separate system and messages properties
+    const result: any = {
+      messages: formattedMessages,
+    };
+
+    // Add system message as a top-level parameter if it exists
+    if (systemMessage) {
+      result.system = systemMessage;
+    }
+
+    return result;
   }
 
   /**

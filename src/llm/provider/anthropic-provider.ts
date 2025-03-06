@@ -9,8 +9,9 @@ import {
   LLMResponseChunk,
 } from './types';
 import { MCPTool } from '../types';
-import { ToolCall } from '../types';
+import { ToolCall, ConversationMessage } from '../types';
 import { countTokens } from '../token-counter';
+import { ProviderAdapter } from './provider-adapter';
 
 /**
  * Anthropic Claude provider implementation
@@ -106,17 +107,34 @@ export class AnthropicProvider implements LLMProviderInterface {
     const modelToUse = options.model || 'claude-3-sonnet-20240229';
 
     // Prepare messages array with existing history and new message
-    const messages =
-      (options.providerOptions?.messages as Array<{
-        role: string;
-        content: string;
-      }>) || [];
+    let messages: any[] = (options.providerOptions?.messages as any[]) || [];
 
-    // Add the new user message
-    messages.push({
-      role: 'user',
-      content: message,
-    });
+    // Check if we should use the provider adapter for formatting
+    if (options.providerOptions?.useProviderFormatting) {
+      const providerAdapter = new ProviderAdapter();
+
+      // Add the new user message to the messages array
+      const messagesWithNewMessage = [
+        ...(messages as ConversationMessage[]),
+        {
+          role: 'user',
+          content: message,
+          timestamp: new Date(),
+        } as ConversationMessage,
+      ];
+
+      // Format messages using the provider adapter
+      messages = providerAdapter.formatMessagesForProvider(
+        messagesWithNewMessage,
+        'anthropic'
+      );
+    } else {
+      // Add the new user message directly (legacy method)
+      messages.push({
+        role: 'user',
+        content: message,
+      });
+    }
 
     // Format tools if available
     const tools =
@@ -235,17 +253,34 @@ export class AnthropicProvider implements LLMProviderInterface {
     const modelToUse = options.model || 'claude-3-sonnet-20240229';
 
     // Prepare messages array with existing history and new message
-    const messages =
-      (options.providerOptions?.messages as Array<{
-        role: string;
-        content: string;
-      }>) || [];
+    let messages: any[] = (options.providerOptions?.messages as any[]) || [];
 
-    // Add the new user message
-    messages.push({
-      role: 'user',
-      content: message,
-    });
+    // Check if we should use the provider adapter for formatting
+    if (options.providerOptions?.useProviderFormatting) {
+      const providerAdapter = new ProviderAdapter();
+
+      // Add the new user message to the messages array
+      const messagesWithNewMessage = [
+        ...(messages as ConversationMessage[]),
+        {
+          role: 'user',
+          content: message,
+          timestamp: new Date(),
+        } as ConversationMessage,
+      ];
+
+      // Format messages using the provider adapter
+      messages = providerAdapter.formatMessagesForProvider(
+        messagesWithNewMessage,
+        'anthropic'
+      );
+    } else {
+      // Add the new user message directly (legacy method)
+      messages.push({
+        role: 'user',
+        content: message,
+      });
+    }
 
     // Format tools if available
     const tools =

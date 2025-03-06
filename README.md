@@ -235,88 +235,227 @@ The client automatically handles continued conversation after tool execution:
 
 This ensures seamless conversation flow even when tools are used during the interaction.
 
-### Token Management and Context Optimization
+## Tool Execution Guide
+
+The TS-MCP-Client provides a powerful system for registering, executing, and managing tools that LLMs can use. This section guides you through the complete tool execution workflow.
+
+### Registering Tools
+
+Tools are registered when initializing a session, following a standard schema that works across all supported LLM providers:
 
 ```typescript
-// Track detailed token usage
-const tokenMetrics = sessionManager.getSessionTokenUsage(sessionId);
-console.log(`Token usage breakdown:
-  - User tokens: ${tokenMetrics.userTokens}
-  - Assistant tokens: ${tokenMetrics.assistantTokens}
-  - System tokens: ${tokenMetrics.systemTokens}
-  - Tool tokens: ${tokenMetrics.toolTokens}
-  - Total: ${tokenMetrics.totalTokens}/${tokenMetrics.maxContextTokens} (${tokenMetrics.percentUsed}%)
-  - Recommendation: ${tokenMetrics.recommendation}
-`);
+// Create tool definitions
+const tools = [
+  {
+    name: 'get_weather',
+    description: 'Get the current weather for a location',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        location: {
+          type: 'string',
+          description: 'The city and state, e.g. San Francisco, CA',
+        },
+        unit: {
+          type: 'string',
+          enum: ['celsius', 'fahrenheit'],
+          description: 'Temperature unit',
+        },
+      },
+      required: ['location'],
+    },
+  },
+];
 
-// Get cost estimates
-const costEstimate = sessionManager.getTokenCostEstimate(sessionId);
-console.log(`Cost breakdown:
-  - Input cost: $${costEstimate.inputCost.toFixed(4)}
-  - Output cost: $${costEstimate.outputCost.toFixed(4)}
-  - Total cost: $${costEstimate.totalCost.toFixed(4)}
-`);
+// Initialize a session with tools
+const sessionManager = new SessionManager();
+const session = await sessionManager.initializeSession({
+  type: 'claude',
+  api_key: process.env.ANTHROPIC_API_KEY,
+  model: 'claude-3-5-sonnet-20241022',
+  system_prompt: 'You are a helpful assistant with access to tools.',
 
-// Optimize the conversation context if needed
-await sessionManager.optimizeContext(sessionId);
+  // Register tools with the session
+  tools: tools,
+
+  // Optional: Configure tool behavior
+  max_tool_calls: 5, // Limit tool calls per conversation
+  tool_timeout: 30000, // Timeout for tool execution (ms)
+});
 ```
 
-### Provider Switching
+### Tool Execution Process
 
-You can switch between different LLM providers during an active session:
+When an LLM decides to use a tool, the following sequence occurs:
+
+1. **LLM Decision**: The LLM determines a tool is needed and makes a tool call
+2. **Tool Call Event**: The client emits a `tool_start` event with details about the tool request
+3. **Tool Execution**: The client executes the tool with the provided parameters
+4. **Result Handling**: Results from the tool are captured and formatted
+5. **Result Event**: The client emits a `tool_result` event with the execution results
+6. **Conversation Continuation**: The results are sent back to the LLM, which incorporates them into its response
+7. **Response Streaming**: The LLM's continued response is streamed as `content` events
+
+All of this happens automatically when streaming responses:
 
 ```typescript
-// Start with Anthropic Claude
-const session = await sessionManager.initializeSession(config);
-const sessionId = session.id;
-
-// Send a message using Claude
-await sessionManager.sendMessage(sessionId, 'Analyze this data for trends.');
-
-// Switch to OpenAI GPT-4 mid-conversation
-const updatedSession = await sessionManager.switchSessionModel(
+const stream = sessionManager.sendMessageStream(
   sessionId,
-  'openai', // Provider name
-  'gpt-4', // Model ID
+  'What is the weather in New York?'
+);
+
+for await (const chunk of stream) {
+  switch (chunk.type) {
+    case 'tool_start':
+      console.log('Tool call:', chunk.content);
+      // Example: Tool call: get_weather with params {"location":"New York"}
+      break;
+
+    case 'tool_result':
+      console.log('Tool result:', chunk.content);
+      // Example: Tool result: {"temperature":72,"conditions":"sunny"}
+      break;
+
+    case 'content':
+      console.log('Response:', chunk.content);
+      // Example: Response: The weather in New York is currently sunny with a temperature of 72°F.
+      break;
+  }
+}
+```
+
+### Error Handling in Tool Execution
+
+The client provides robust error handling for tool execution:
+
+```typescript
+try {
+  const stream = sessionManager.sendMessageStream(
+    sessionId,
+    'What is the weather in Berlin?'
+  );
+
+  for await (const chunk of stream) {
+    if (chunk.type === 'tool_error') {
+      console.error('Tool error:', chunk.error);
+      // Tool errors don't terminate the conversation
+      // The LLM will receive the error and can respond accordingly
+    }
+  }
+} catch (error) {
+  // This catches critical errors that prevent completing the request
+  console.error('Critical error:', error);
+}
+```
+
+### Controlling Tool Behavior
+
+You can control tool behavior at both the session level and per-message:
+
+```typescript
+// Session-level tool configuration (during initialization)
+const session = await sessionManager.initializeSession({
+  type: 'claude',
+  api_key: process.env.ANTHROPIC_API_KEY,
+  model: 'claude-3-5-sonnet-20241022',
+
+  tools: tools,
+  max_tool_calls: 5, // Default limit for the session
+  tool_timeout: 30000, // Default timeout (ms)
+});
+
+// Message-level tool configuration (overrides session defaults)
+await sessionManager.sendMessage(
+  sessionId,
+  'Give me weather for multiple cities',
   {
-    api_key: process.env.OPENAI_API_KEY, // Provider API key
+    max_tool_calls: 10, // Allow more tool calls for this message
+    tool_timeout: 60000, // Longer timeout for this message
+    disable_tools: false, // Explicitly enable tools (default)
   }
 );
 
-// Continue the conversation with GPT-4
+// Temporarily disable tools for a specific message
 await sessionManager.sendMessage(
   sessionId,
-  'Now give me a summary of the key insights.'
+  'Just answer this question without using tools: what is 2+2?',
+  {
+    disable_tools: true, // Prevent tool usage for this message
+  }
 );
 ```
 
-This allows you to:
+### Provider-Specific Considerations
 
-- Leverage different model strengths for different parts of a conversation
-- Fallback to alternative providers if one experiences errors
-- Optimize for cost, capability, or performance as needed
+Different LLM providers have varying capabilities and formats for tool calls:
 
-The client maintains conversation continuity across provider switches, ensuring a seamless experience.
+#### Anthropic Claude
 
-### Fine-Tuned Context Management
+Claude uses a structured format with `tool_use` and `tool_result` message parts:
 
 ```typescript
-// Configure context optimization settings
-sessionManager.setContextSettings(sessionId, {
-  autoTruncate: true, // Enable automatic truncation
-  preserveSystemMessages: true, // Always keep system messages
-  preserveRecentMessages: 6, // Keep the 6 most recent messages
-  truncationStrategy: 'oldest-first', // Remove oldest messages first
-});
+// Claude 3.x supports native tool use
+// The client handles all formatting automatically
+```
 
-// Manually trigger context optimization when needed
-if (tokenMetrics.percentUsed > 80) {
-  console.log('Context window filling up, optimizing...');
-  const optimizedMetrics = sessionManager.optimizeContext(sessionId);
-  console.log(
-    `Reduced to ${optimizedMetrics.totalTokens} tokens (${optimizedMetrics.percentUsed}%)`
-  );
-}
+#### OpenAI
+
+OpenAI uses `tool_calls` with function calling:
+
+```typescript
+// For OpenAI models with function calling
+// The tool schema is automatically converted to OpenAI's function calling format
+```
+
+#### Grok
+
+Grok uses a text-based approach to tools:
+
+```typescript
+// Grok has its own tool calling format
+// The client handles the conversion automatically
+```
+
+The TS-MCP-Client normalizes these differences, providing a consistent developer experience regardless of the underlying LLM provider.
+
+### Troubleshooting Tool Execution
+
+Common issues and solutions:
+
+1. **Tool Not Called**:
+
+   - Ensure your tool description is clear and specific
+   - Check that the system prompt mentions tools are available
+
+2. **Invalid Tool Parameters**:
+
+   - Validate your input schema is correct and clear
+   - Enable verbose logging to see the exact parameters sent
+
+3. **Tool Timeout**:
+
+   - Increase the tool timeout if your tool requires more time
+   - Optimize your tool implementation for faster execution
+
+4. **Debug Tool Execution**:
+   - Enable verbose logging for detailed tool execution information
+   ```typescript
+   sessionManager.setLogLevel('debug');
+   ```
+
+### Token Management
+
+```javascript
+// Get token usage metrics for a session
+const tokenMetrics = await sessionManager.getTokenMetrics(sessionId);
+console.log(`Total tokens: ${tokenMetrics.totalTokens}`);
+console.log(`- Prompt tokens: ${tokenMetrics.promptTokens}`);
+console.log(`- Completion tokens: ${tokenMetrics.completionTokens}`);
+console.log(`- Tool tokens: ${tokenMetrics.toolTokens}`);
+
+// Get estimated cost
+const cost = await sessionManager.getTokenCost(sessionId);
+console.log(`Estimated cost: $${cost.totalCost.toFixed(4)}`);
 ```
 
 ### Token Optimization Features
@@ -769,12 +908,24 @@ try {
 
 ```typescript
 interface LLMConfig {
-  type: string; // LLM type (e.g., 'claude')
+  type: string; // LLM type (e.g., 'claude', 'openai', 'grok')
   api_key: string; // API key for the LLM
   model: string; // Model identifier
   system_prompt: string; // System prompt for the session
 
   max_tool_calls?: number; // Maximum tool calls per session
+  tool_timeout?: number; // Timeout for tool execution (ms)
+
+  // Tool definitions
+  tools?: Array<{
+    name: string;
+    description: string;
+    inputSchema: {
+      type: string;
+      properties: Record<string, any>;
+      required?: string[];
+    };
+  }>;
 
   thinking?: {
     enabled?: boolean; // Enable thinking for Claude 3.7+
@@ -798,6 +949,51 @@ interface LLMConfig {
   };
 }
 
+// Multi-provider configuration
+interface MultiProviderConfig {
+  // Provider configurations
+  providers: Record<string, ProviderConfig>;
+
+  // Default provider to use
+  default_provider: string;
+
+  // Optional fallback providers
+  provider_fallbacks?: Record<string, string[]>;
+
+  // Global configuration (applies to all providers)
+  max_tool_calls?: number;
+  tool_timeout?: number;
+  tools?: Array<any>; // Same structure as in LLMConfig
+
+  servers?: {
+    [key: string]: {
+      command: string;
+      args: string[];
+      env?: Record<string, string>;
+    };
+  };
+}
+
+interface ProviderConfig {
+  api_key: string;
+  model: string;
+  system_prompt: string;
+
+  // Provider-specific settings
+  thinking?: {
+    enabled?: boolean;
+    budget_tokens?: number;
+  };
+
+  token_optimization?: {
+    enabled?: boolean;
+    auto_truncate?: boolean;
+    preserve_system_messages?: boolean;
+    preserve_recent_messages?: number;
+    truncation_strategy?: string;
+  };
+}
+
 interface SessionManagerOptions {
   useSharedServers?: boolean; // Enable server sharing across sessions
 }
@@ -815,25 +1011,24 @@ The client supports multiple LLM providers and allows switching between them dur
 
 You can configure multiple providers in a single configuration file, with fallback providers for resilience:
 
-```typescript
+```javascript
 // Multi-provider configuration example
 const multiProviderConfig = {
   // Define multiple providers in a single configuration
   providers: {
     anthropic: {
       api_key: process.env.ANTHROPIC_API_KEY,
-      default_model: 'claude-3-sonnet-20240229',
-      system_prompt: 'You are a helpful assistant with access to tools.',
-      thinking: { enabled: true },
+      model: 'claude-3-opus-20240229',
+      system_prompt: 'You are a helpful assistant.',
     },
     openai: {
       api_key: process.env.OPENAI_API_KEY,
-      default_model: 'gpt-4o',
+      model: 'gpt-4o',
       system_prompt: 'You are a helpful assistant.',
     },
     grok: {
       api_key: process.env.GROK_API_KEY,
-      default_model: 'grok-1',
+      model: 'grok-1',
       system_prompt: 'You are a helpful assistant.',
     },
   },
@@ -841,21 +1036,10 @@ const multiProviderConfig = {
   // Set the default provider to use
   default_provider: 'anthropic',
 
-  // Define fallback chains for resilience
+  // Define fallback chains
   provider_fallbacks: {
-    anthropic: ['openai', 'grok'], // If Anthropic fails, try OpenAI, then Grok
-    openai: ['anthropic'], // If OpenAI fails, try Anthropic
-    grok: ['anthropic', 'openai'], // If Grok fails, try Anthropic, then OpenAI
-  },
-
-  // Common settings
-  max_tool_calls: 5,
-  servers: {
-    filesystem: {
-      command: 'npx',
-      args: ['-y', '@modelcontextprotocol/server-filesystem', '/workspace'],
-      env: {},
-    },
+    anthropic: ['openai', 'grok'],
+    openai: ['anthropic', 'grok'],
   },
 };
 
@@ -865,19 +1049,121 @@ const session = await sessionManager.initializeSession(multiProviderConfig);
 
 When using fallback providers, the system will automatically try the next provider in the chain if the current one fails:
 
-```typescript
+```javascript
 // The fallback providers will be used automatically when a provider fails
 try {
   // This will try Anthropic first (default provider)
-  const result = await sessionManager.sendMessage(
-    sessionId,
-    'Tell me about machine learning'
-  );
+  await sessionManager.sendMessage(sessionId, 'Hello, how can you help me?');
 } catch (error) {
   // If all providers in the fallback chain fail, this will be thrown
   console.error('All providers failed:', error);
 }
 ```
+
+### Provider-Specific Tool Message Formatting
+
+Different LLM providers have varying requirements for message formatting, especially for tool calls. This library handles these differences automatically through provider-specific message formatters:
+
+#### Anthropic (Claude)
+
+Claude uses a specific format for tool usage with separate message parts for tool use and tool results:
+
+```javascript
+// Anthropic tool use format
+{
+  role: 'assistant',
+  content: [
+    {
+      type: 'text',
+      text: "I'll look up the weather for you."
+    },
+    {
+      type: 'tool_use',
+      id: 'tool_12345',
+      name: 'get_weather',
+      input: { location: 'New York' },
+    }
+  ]
+}
+
+// Anthropic tool result format
+{
+  role: 'user',
+  content: [
+    {
+      type: 'tool_result',
+      tool_use_id: 'tool_12345',
+      content: '{"temperature": 72, "conditions": "sunny"}'
+    }
+  ]
+}
+```
+
+#### OpenAI
+
+OpenAI uses a different format with tool_calls and standalone tool messages:
+
+```javascript
+// OpenAI tool call format
+{
+  role: 'assistant',
+  content: "I'll check the weather for you.",
+  tool_calls: [
+    {
+      id: 'call_12345',
+      type: 'function',
+      function: {
+        name: 'get_weather',
+        arguments: '{"location":"New York"}'
+      }
+    }
+  ]
+}
+
+// OpenAI tool result format
+{
+  role: 'tool',
+  tool_call_id: 'call_12345',
+  content: '{"temperature": 72, "conditions": "sunny"}'
+}
+```
+
+#### Grok
+
+Grok uses a simpler approach with conventional message formats:
+
+```javascript
+// Grok tool use (via normal messages)
+{
+  role: 'assistant',
+  content: "I need to call the get_weather function with location='New York'"
+}
+
+// Grok tool result (via normal messages)
+{
+  role: 'user',
+  content: '{"temperature": 72, "conditions": "sunny"}'
+}
+```
+
+### Tool Execution Across Providers
+
+The library automatically handles these format differences through a provider adapter system that:
+
+1. Registers specialized message formatters for each provider
+2. Automatically converts tool schemas to provider-specific formats
+3. Formats tool calls according to each provider's requirements
+4. Normalizes tool results back to a consistent format
+5. Reformats conversation history when switching between providers
+
+This enables you to:
+
+1. Define tools once in a provider-agnostic format
+2. Use the same tools seamlessly across all supported providers
+3. Switch providers mid-conversation without losing tool context
+4. Receive consistent event streams regardless of the underlying provider
+
+The adapter system handles all the complexity of different provider tool formats, allowing you to focus on your application logic rather than provider-specific implementation details.
 
 ### Supported Providers
 
@@ -978,7 +1264,7 @@ const updatedSession = await sessionManager.switchSessionModel(
   }
 );
 
-console.log(`Switched to ${updatedSession.provider}/${updatedSession.modelId}`);
+console.log(`Switched to ${updatedSession.type}/${updatedSession.modelId}`);
 ```
 
 ### Using Multiple Models Within One Provider
@@ -1043,8 +1329,8 @@ const compatibilityChecker = new ProviderCompatibilityChecker();
 
 // Check compatibility between providers/models
 const compatibility = compatibilityChecker.checkCompatibility(
-  { provider: 'anthropic', modelId: 'claude-3-opus-20240229' },
-  { provider: 'openai', modelId: 'gpt-4o' }
+  { type: 'anthropic', modelId: 'claude-3-opus-20240229' },
+  { type: 'openai', modelId: 'gpt-4o' }
 );
 
 if (compatibility.issues.length > 0) {
@@ -1075,8 +1361,8 @@ if (compatibility.issues.length > 0) {
 
 // Generate a migration plan
 const migrationPlan = compatibilityChecker.getMigrationPlan(
-  { provider: 'anthropic', modelId: 'claude-3-opus-20240229' },
-  { provider: 'openai', modelId: 'gpt-4o' },
+  { type: 'anthropic', modelId: 'claude-3-opus-20240229' },
+  { type: 'openai', modelId: 'gpt-4o' },
   {
     currentTokenCount: 15000,
     includeRecommendations: true,

@@ -9,11 +9,7 @@ import {
 import { MCPTool } from '../../types';
 import { ToolCall, ConversationMessage } from '../../types';
 import { countTokens } from '../../tokens/token-counter';
-import {
-  GrokClient,
-  GrokCompletionOptions,
-  GrokMessage,
-} from '../../grok-client';
+import { GrokClient, GrokCompletionOptions, GrokMessage } from './grok-client';
 import { ProviderAdapter } from '../compatibility/provider-adapter';
 
 /**

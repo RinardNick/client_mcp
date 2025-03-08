@@ -6,7 +6,7 @@ import { ConversationMessage } from '../../types';
 
 // Mock the Grok API client
 // We're creating a custom mock since there's no official SDK yet
-vi.mock('../../grok-client', () => {
+vi.mock('./grok-client', () => {
   const mockComplete = vi.fn().mockResolvedValue({
     message: {
       content: 'This is a mock Grok response',

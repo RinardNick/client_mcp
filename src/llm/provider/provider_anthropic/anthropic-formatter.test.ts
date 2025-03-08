@@ -242,4 +242,224 @@ describe('AnthropicFormatter', () => {
       ],
     });
   });
+
+  it('correctly pairs tool_use and tool_result messages', () => {
+    const messages: ConversationMessage[] = [
+      {
+        role: 'system',
+        content: 'You are a helpful assistant.',
+        timestamp: new Date(),
+      },
+      {
+        role: 'user',
+        content: 'What files are in the /tmp directory?',
+        timestamp: new Date(),
+      },
+      {
+        role: 'assistant',
+        content: "I'll check the directory for you.",
+        timestamp: new Date(),
+      },
+      {
+        // Tool use message
+        role: 'assistant',
+        content: "I'll use the list_files tool to check.",
+        timestamp: new Date(),
+        hasTool: true,
+        toolId: 'tool_abc123',
+        toolName: 'list_files',
+        toolParameters: { path: '/tmp' },
+      },
+      {
+        // Tool result message
+        role: 'assistant',
+        content: '{"files": ["file1.txt", "file2.txt"]}',
+        timestamp: new Date(),
+        isToolResult: true,
+        toolId: 'tool_abc123',
+      },
+      {
+        role: 'assistant',
+        content:
+          'Based on the results, I can see there are two files: file1.txt and file2.txt',
+        timestamp: new Date(),
+      },
+    ];
+
+    const formatted = formatter.formatMessages(messages);
+
+    // Debug the full structure
+    console.log('Formatted messages:', JSON.stringify(formatted, null, 2));
+
+    // Verify system message is extracted
+    expect(formatted.system).toBe('You are a helpful assistant.');
+
+    // Verify the messages array length
+    // We expect: 1 user + 1 initial assistant + 1 tool use/result pair (2 messages) + 1 final assistant = 5 messages
+    expect(formatted.messages).toHaveLength(5);
+
+    // Check for proper tool use formatting
+    const toolUseMessage = formatted.messages.find(
+      (msg: any) =>
+        msg.role === 'assistant' &&
+        Array.isArray(msg.content) &&
+        msg.content.some((item: any) => item.type === 'tool_use')
+    );
+
+    expect(toolUseMessage).toBeDefined();
+    expect(toolUseMessage.content).toHaveLength(2);
+    expect(toolUseMessage.content[0].type).toBe('text');
+    expect(toolUseMessage.content[1].type).toBe('tool_use');
+    expect(toolUseMessage.content[1].id).toBe('tool_abc123');
+    expect(toolUseMessage.content[1].name).toBe('list_files');
+    expect(toolUseMessage.content[1].input).toEqual({ path: '/tmp' });
+
+    // Check for proper tool result formatting (should follow tool use)
+    const toolResultIndex = formatted.messages.findIndex(
+      (msg: any) =>
+        msg.role === 'user' &&
+        Array.isArray(msg.content) &&
+        msg.content.some((item: any) => item.type === 'tool_result')
+    );
+
+    expect(toolResultIndex).toBeGreaterThan(0);
+
+    const toolResultMessage = formatted.messages[toolResultIndex];
+    expect(toolResultMessage.content).toHaveLength(1);
+    expect(toolResultMessage.content[0].type).toBe('tool_result');
+    expect(toolResultMessage.content[0].tool_use_id).toBe('tool_abc123');
+    expect(toolResultMessage.content[0].content).toBe(
+      '{"files": ["file1.txt", "file2.txt"]}'
+    );
+
+    // Verify the tool_result immediately follows the tool_use
+    const toolUseIndex = formatted.messages.findIndex(
+      (msg: any) =>
+        msg.role === 'assistant' &&
+        Array.isArray(msg.content) &&
+        msg.content.some((item: any) => item.type === 'tool_use')
+    );
+
+    expect(toolResultIndex).toBe(toolUseIndex + 1);
+  });
+
+  it('handles multiple tool use/result pairs correctly', () => {
+    const messages: ConversationMessage[] = [
+      {
+        role: 'system',
+        content: 'You are a helpful assistant.',
+        timestamp: new Date(),
+      },
+      {
+        role: 'user',
+        content: 'What files are in /tmp and /var?',
+        timestamp: new Date(),
+      },
+      // First tool sequence
+      {
+        role: 'assistant',
+        content: "I'll check /tmp first.",
+        timestamp: new Date(),
+        hasTool: true,
+        toolId: 'tool_123',
+        toolName: 'list_files',
+        toolParameters: { path: '/tmp' },
+      },
+      {
+        role: 'assistant',
+        content: '{"files": ["tmp1.txt", "tmp2.txt"]}',
+        timestamp: new Date(),
+        isToolResult: true,
+        toolId: 'tool_123',
+      },
+      // Second tool sequence
+      {
+        role: 'assistant',
+        content: "Now I'll check /var.",
+        timestamp: new Date(),
+        hasTool: true,
+        toolId: 'tool_456',
+        toolName: 'list_files',
+        toolParameters: { path: '/var' },
+      },
+      {
+        role: 'assistant',
+        content: '{"files": ["var1.log", "var2.log"]}',
+        timestamp: new Date(),
+        isToolResult: true,
+        toolId: 'tool_456',
+      },
+      {
+        role: 'assistant',
+        content: 'I found different files in each directory.',
+        timestamp: new Date(),
+      },
+    ];
+
+    const formatted = formatter.formatMessages(messages);
+
+    // Debug the full structure
+    console.log(
+      'Formatted messages with multiple tools:',
+      JSON.stringify(formatted, null, 2)
+    );
+
+    // Verify we get the right number of messages
+    // We expect: 1 user + 2 tool sequences (2 messages each) + 1 final assistant = 6 messages
+    expect(formatted.messages).toHaveLength(6);
+
+    // Count tool_use and tool_result messages
+    const toolUseCount = formatted.messages.filter(
+      (msg: any) =>
+        msg.role === 'assistant' &&
+        Array.isArray(msg.content) &&
+        msg.content.some((item: any) => item.type === 'tool_use')
+    ).length;
+
+    const toolResultCount = formatted.messages.filter(
+      (msg: any) =>
+        msg.role === 'user' &&
+        Array.isArray(msg.content) &&
+        msg.content.some((item: any) => item.type === 'tool_result')
+    ).length;
+
+    // Should have equal numbers of tool use and result messages
+    expect(toolUseCount).toBe(2);
+    expect(toolResultCount).toBe(2);
+
+    // Verify each tool result follows its corresponding tool use
+    // First pair
+    const firstToolUseIndex = formatted.messages.findIndex(
+      (msg: any) =>
+        msg.role === 'assistant' &&
+        Array.isArray(msg.content) &&
+        msg.content.some(
+          (c: any) => c.type === 'tool_use' && c.id === 'tool_123'
+        )
+    );
+    expect(firstToolUseIndex).toBeGreaterThan(0);
+    expect(formatted.messages[firstToolUseIndex + 1].role).toBe('user');
+    expect(
+      formatted.messages[firstToolUseIndex + 1].content.some(
+        (c: any) => c.type === 'tool_result' && c.tool_use_id === 'tool_123'
+      )
+    ).toBe(true);
+
+    // Second pair
+    const secondToolUseIndex = formatted.messages.findIndex(
+      (msg: any) =>
+        msg.role === 'assistant' &&
+        Array.isArray(msg.content) &&
+        msg.content.some(
+          (c: any) => c.type === 'tool_use' && c.id === 'tool_456'
+        )
+    );
+    expect(secondToolUseIndex).toBeGreaterThan(firstToolUseIndex);
+    expect(formatted.messages[secondToolUseIndex + 1].role).toBe('user');
+    expect(
+      formatted.messages[secondToolUseIndex + 1].content.some(
+        (c: any) => c.type === 'tool_result' && c.tool_use_id === 'tool_456'
+      )
+    ).toBe(true);
+  });
 });

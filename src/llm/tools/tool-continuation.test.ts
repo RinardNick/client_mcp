@@ -575,4 +575,135 @@ describe('Tool Continuation', () => {
     // Verify message history contains tool result and assistant response
     expect(session.messages.some(m => m.isToolResult)).toBe(true);
   });
+
+  it('should ensure proper pairing of tool_use and tool_result messages for Anthropic', async () => {
+    // Create mocked messages that simulate a conversation with a tool call and result
+    const toolId = 'test_tool_id';
+    const messages = [
+      {
+        role: 'system' as const,
+        content: 'You are a helpful assistant.',
+        timestamp: new Date(),
+      },
+      {
+        role: 'user' as const,
+        content: 'List files in the directory',
+        timestamp: new Date(),
+      },
+      {
+        role: 'assistant' as const,
+        content: "I'll help you list files.",
+        timestamp: new Date(),
+        hasTool: true,
+        toolId: toolId,
+        toolName: 'list-files',
+        toolParameters: { path: '.' },
+      },
+      {
+        role: 'assistant' as const,
+        content: '{"files": ["file1.txt", "file2.txt"]}',
+        timestamp: new Date(),
+        isToolResult: true,
+        toolId: toolId,
+      },
+    ];
+
+    // Import the formatter directly for testing
+    const { AnthropicFormatter } = await import(
+      '../provider/provider_anthropic'
+    );
+    const formatter = new AnthropicFormatter();
+
+    console.log('Input messages:');
+    messages.forEach((msg, idx) => {
+      console.log(
+        `[${idx}] role=${msg.role}, hasTool=${msg.hasTool}, isToolResult=${msg.isToolResult}, toolId=${msg.toolId}`
+      );
+    });
+
+    // Format the messages for Anthropic API
+    const formattedResult = formatter.formatMessages(messages);
+
+    console.log('\nFormatted result:');
+    console.log(`System: ${formattedResult.system}`);
+    console.log(`Messages: ${formattedResult.messages.length}`);
+    formattedResult.messages.forEach((msg: any, idx: number) => {
+      console.log(
+        `[${idx}] role: ${msg.role}, content type: ${
+          Array.isArray(msg.content) ? 'array' : typeof msg.content
+        }`
+      );
+      if (Array.isArray(msg.content)) {
+        msg.content.forEach((contentItem: any, contentIdx: number) => {
+          console.log(
+            `  - content[${contentIdx}]: type=${contentItem.type}, ${
+              contentItem.type === 'tool_use'
+                ? `id=${contentItem.id}`
+                : contentItem.type === 'tool_result'
+                ? `tool_use_id=${contentItem.tool_use_id}`
+                : ''
+            }`
+          );
+        });
+      }
+    });
+
+    // Verify that we got separate system message and formatted messages array
+    expect(formattedResult.system).toBe('You are a helpful assistant.');
+    expect(formattedResult.messages).toBeDefined();
+    expect(Array.isArray(formattedResult.messages)).toBe(true);
+
+    // Find all tool-related messages in the formatted result
+    const toolUseMessage = formattedResult.messages.find(
+      (m: any) =>
+        m.role === 'assistant' &&
+        Array.isArray(m.content) &&
+        m.content.some((c: any) => c.type === 'tool_use')
+    );
+
+    const toolResultMessage = formattedResult.messages.find(
+      (m: any) =>
+        m.role === 'user' &&
+        Array.isArray(m.content) &&
+        m.content.some((c: any) => c.type === 'tool_result')
+    );
+
+    console.log('\nFinal test checks:');
+    console.log(`toolUseMessage: ${toolUseMessage ? 'found' : 'not found'}`);
+    console.log(
+      `toolResultMessage: ${toolResultMessage ? 'found' : 'not found'}`
+    );
+
+    // Verify that both tool use and result messages exist
+    expect(toolUseMessage).toBeDefined();
+    expect(toolResultMessage).toBeDefined();
+
+    // Verify tool use message has correct structure
+    if (toolUseMessage) {
+      const toolUseBlock = toolUseMessage.content.find(
+        (c: any) => c.type === 'tool_use'
+      );
+      expect(toolUseBlock).toBeDefined();
+      expect(toolUseBlock.id).toBe(toolId);
+      expect(toolUseBlock.name).toBe('list-files');
+    }
+
+    // Verify tool result message has correct structure
+    if (toolResultMessage) {
+      const toolResultBlock = toolResultMessage.content.find(
+        (c: any) => c.type === 'tool_result'
+      );
+      expect(toolResultBlock).toBeDefined();
+      expect(toolResultBlock.tool_use_id).toBe(toolId);
+      expect(toolResultBlock.content).toBe(
+        '{"files": ["file1.txt", "file2.txt"]}'
+      );
+    }
+
+    // Verify the tool_result follows the tool_use
+    const toolUseIndex = formattedResult.messages.indexOf(toolUseMessage);
+    const toolResultIndex = formattedResult.messages.indexOf(toolResultMessage);
+    expect(toolUseIndex).toBeGreaterThanOrEqual(0);
+    expect(toolResultIndex).toBeGreaterThan(toolUseIndex);
+  });
 });

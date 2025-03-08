@@ -1,5 +1,5 @@
-import { ChatMessage } from './types';
-import { getContextLimit } from './tokens/token-counter';
+import { ChatMessage } from '../types';
+import { getContextLimit } from '../tokens/token-counter';
 
 /**
  * Options for context window adaptation

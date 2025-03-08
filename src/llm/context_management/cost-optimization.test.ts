@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SessionManager } from './session';
-import { ChatMessage } from './types';
+import { SessionManager } from '../session';
+import { ChatMessage } from '../types';
 
 describe('Cost Optimization Mode', () => {
   let sessionManager: SessionManager;

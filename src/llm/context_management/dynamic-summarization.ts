@@ -5,8 +5,8 @@
  * based on context window pressure, time elapsed, and topic changes.
  */
 
-import { ChatSession, ChatMessage, ContextSettings } from './types';
-import { SessionManager } from './session';
+import { ChatSession, ChatMessage, ContextSettings } from '../types';
+import { SessionManager } from '../session';
 
 // Constants for default settings
 const DEFAULT_TOKEN_THRESHOLD = 70; // Default to trigger at 70% context usage

@@ -1,12 +1,7 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { SessionManager } from './session';
+import { SessionManager } from '../session';
 import * as adaptiveStrategy from './adaptive-context-strategy';
-import {
-  ChatMessage,
-  ChatSession,
-  ContextSettings,
-  TruncationStrategy,
-} from './types';
+import { ChatMessage, ChatSession } from '../types';
 
 // Mock external dependencies
 vi.mock('@anthropic-ai/sdk', () => {
@@ -22,7 +17,7 @@ vi.mock('@anthropic-ai/sdk', () => {
 });
 
 // Mock server dependencies
-vi.mock('../server/discovery', () => ({
+vi.mock('../../server/discovery', () => ({
   ServerDiscovery: vi.fn().mockImplementation(() => ({
     discoverCapabilities: vi.fn().mockResolvedValue({
       client: { callTool: vi.fn() },
@@ -31,7 +26,7 @@ vi.mock('../server/discovery', () => ({
   })),
 }));
 
-vi.mock('../server/launcher', () => ({
+vi.mock('../../server/launcher', () => ({
   ServerLauncher: vi.fn().mockImplementation(() => ({
     launchServer: vi.fn().mockResolvedValue(undefined),
     getServerProcess: vi.fn().mockReturnValue({

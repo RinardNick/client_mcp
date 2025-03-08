@@ -1,9 +1,9 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
-import { SessionManager } from './session';
+import { SessionManager } from '../session';
 import * as dynamicSummarization from './dynamic-summarization';
 import * as summarization from './conversation-summarization';
-import { ChatMessage, ChatSession, ContextSettings } from './types';
+import { ChatMessage, ChatSession, ContextSettings } from '../types';
 
 describe('Dynamic Summarization Triggering', () => {
   let sessionManager: SessionManager;

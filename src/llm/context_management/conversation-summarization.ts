@@ -11,9 +11,9 @@ import {
   ConversationSummary,
   SummarizationResult,
   SummarizationMetrics,
-} from './types';
-import { SessionManager } from './session';
-import { countTokens } from './tokens/token-counter';
+} from '../types';
+import { SessionManager } from '../session';
+import { countTokens } from '../tokens/token-counter';
 
 const DEFAULT_BATCH_SIZE = 3; // Default number of message pairs to summarize together
 const MIN_COMPRESSION_RATIO = 1.5; // Minimum compression ratio to consider a summary effective

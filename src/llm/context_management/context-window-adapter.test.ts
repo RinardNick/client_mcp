@@ -1,9 +1,9 @@
 import { describe, expect, it, beforeEach, vi, Mock } from 'vitest';
 import { ContextWindowAdapter } from './context-window-adapter';
-import { ChatMessage } from './types';
+import { ChatMessage } from '../types';
 
 // Mock the token counter module
-vi.mock('./tokens/token-counter', () => ({
+vi.mock('../tokens/token-counter', () => ({
   getContextLimit: vi.fn((modelId: string) => {
     // Return mocked context sizes based on model
     if (modelId === 'large-model') return 32000;
@@ -15,7 +15,7 @@ vi.mock('./tokens/token-counter', () => ({
 }));
 
 // Import the mocked module
-import * as tokenCounter from './tokens';
+import * as tokenCounter from '../tokens';
 
 describe('ContextWindowAdapter', () => {
   let adapter: ContextWindowAdapter;

@@ -3,7 +3,7 @@
  * This module helps determine which messages in a conversation are most important
  * to keep when context window optimization is needed.
  */
-import { ChatMessage, ChatSession, MessageRelevance } from './types';
+import { ChatMessage, ChatSession, MessageRelevance } from '../types';
 
 /**
  * Weights for different relevance factors, applied when scoring messages.

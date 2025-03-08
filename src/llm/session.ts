@@ -30,22 +30,22 @@ import {
   calculateContextUsage,
   countTokens,
 } from './tokens/token-counter';
-import { pruneMessagesByRelevance } from './relevance-pruning';
+import { pruneMessagesByRelevance } from './context_management/relevance-pruning';
 import {
   summarizeConversation,
   createSummaryMessage,
   getSummarizationMetrics,
-} from './conversation-summarization';
-import { checkAndTriggerSummarization } from './dynamic-summarization';
-import { handleClusterTruncation } from './message-clustering';
+} from './context_management/conversation-summarization';
+import { checkAndTriggerSummarization } from './context_management/dynamic-summarization';
+import { handleClusterTruncation } from './context_management/message-clustering';
 import {
   applyAdaptiveStrategy,
   trackStrategyPerformance,
-} from './adaptive-context-strategy';
+} from './context_management/adaptive-context-strategy';
 import {
   applyCostOptimization,
   getCostSavingsReport,
-} from './cost-optimization';
+} from './context_management/cost-optimization';
 import { LLMProviderFactory } from './provider/factory';
 import {
   LLMProviderInterface,

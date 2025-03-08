@@ -1,8 +1,8 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
-import { SessionManager } from './session';
+import { SessionManager } from '../session';
 import * as summarization from './conversation-summarization';
-import { ChatMessage, ConversationSummary } from './types';
+import { ChatMessage, ConversationSummary } from '../types';
 
 describe('Conversation Summarization', () => {
   let sessionManager: SessionManager;

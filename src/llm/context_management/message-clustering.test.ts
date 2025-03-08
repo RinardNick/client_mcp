@@ -1,7 +1,7 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { SessionManager } from './session';
+import { SessionManager } from '../session';
 import * as messageClustering from './message-clustering';
-import { ChatMessage, MessageCluster } from './types';
+import { ChatMessage, MessageCluster } from '../types';
 
 // Mock external dependencies
 vi.mock('@anthropic-ai/sdk', () => {

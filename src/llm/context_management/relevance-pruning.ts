@@ -1,4 +1,4 @@
-import { ChatMessage, ContextSettings, MessageRelevance } from './types';
+import { ChatMessage, ContextSettings, MessageRelevance } from '../types';
 import {
   calculateMessageRelevance,
   calculateSessionRelevanceScores,

@@ -1,7 +1,7 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { SessionManager } from './session';
-import { LLMConfig } from '../config/types';
-import { ChatMessage, MessageRelevance } from './types';
+import { SessionManager } from '../session';
+import { LLMConfig } from '../../config/types';
+import { ChatMessage, MessageRelevance } from '../types';
 import {
   calculateMessageRelevance,
   calculateSessionRelevanceScores,

@@ -1,7 +1,7 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { SessionManager } from './session';
-import { LLMConfig } from '../config/types';
-import { ChatMessage, ContextSettings } from './types';
+import { SessionManager } from '../session';
+import { LLMConfig } from '../../config/types';
+import { ChatMessage, ContextSettings } from '../types';
 import { pruneMessagesByRelevance } from './relevance-pruning';
 import sinon from 'sinon';
 

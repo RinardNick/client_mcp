@@ -7,8 +7,8 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { ChatMessage, MessageCluster, ChatSession } from './types';
-import { logger } from '../utils/logger';
+import { ChatMessage, MessageCluster, ChatSession } from '../types';
+import { logger } from '../../utils/logger';
 
 // Define debug log function if logger module doesn't have it
 const debugLog = (category: string, message: string) => {

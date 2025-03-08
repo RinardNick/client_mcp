@@ -7,8 +7,8 @@
  * 3. Dynamically selects the most effective strategy based on conversation type and past performance
  */
 
-import { ChatSession, TruncationStrategy } from './types';
-import { logger } from '../utils/logger';
+import { ChatSession, TruncationStrategy } from '../types';
+import { logger } from '../../utils/logger';
 
 // Logger for debugging
 const log = (message: string) => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { AnthropicProvider } from './anthropic-provider';
-import { OpenAIProvider } from './openai-provider';
+import { AnthropicProvider } from './provider_anthropic';
+import { OpenAIProvider } from './provider_openai';
 import { MCPTool, ToolCall } from '../types';
 
 // Create mock Anthropic client

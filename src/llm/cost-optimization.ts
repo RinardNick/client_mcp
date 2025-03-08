@@ -11,7 +11,7 @@ import {
   CostOptimizationLevel,
   CostSavingsReport,
 } from './types';
-import { calculateTokenCost } from './token-counter';
+import { calculateTokenCost } from './tokens/token-counter';
 
 /**
  * Initialize the cost savings tracking for a session

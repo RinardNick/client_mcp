@@ -10,7 +10,7 @@ import {
 } from './llm/types';
 import { LLMConfig, ConfigurationError, ServerConfig } from './config/types';
 import express, { Request, Response, Router } from 'express';
-import { ProviderCompatibilityChecker } from './llm/provider-compatibility';
+import { ProviderCompatibilityChecker } from './llm/provider/compatibility/provider-compatibility';
 import { ToolAdapter } from './llm/tool-adapter';
 import { ToolCapabilityManager } from './llm/tool-capability-manager';
 
@@ -34,8 +34,8 @@ export {
   isContextWindowCritical,
   getContextRecommendation,
   calculateContextUsage,
-} from './llm/token-counter';
-export { ProviderCompatibilityChecker } from './llm/provider-compatibility';
+} from './llm/tokens/token-counter';
+export { ProviderCompatibilityChecker } from './llm/provider/compatibility/provider-compatibility';
 export { ToolAdapter } from './llm/tool-adapter';
 export { ToolCapabilityManager } from './llm/tool-capability-manager';
 

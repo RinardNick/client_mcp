@@ -29,7 +29,7 @@ import {
   getContextRecommendation,
   calculateContextUsage,
   countTokens,
-} from './token-counter';
+} from './tokens/token-counter';
 import { pruneMessagesByRelevance } from './relevance-pruning';
 import {
   summarizeConversation,
@@ -54,7 +54,7 @@ import {
   FeatureSet,
 } from './provider/types';
 import { createToolUseMessage, createToolResultMessage } from './utils';
-import { ProviderAdapter } from './provider/provider-adapter';
+import { ProviderAdapter } from './provider/compatibility/provider-adapter';
 import { ModelSwitchOptions } from './types';
 import { getProviderConfig } from '../config/loader';
 import { ModelRegistry } from './provider/model-registry';

@@ -13,10 +13,9 @@ export * from './factory';
 export * from './model-registry';
 
 // Export specific provider implementations
-export * from './anthropic-provider';
-export * from './openai-provider';
-export * from './grok-provider';
+export * from './provider_anthropic';
+export * from './provider_openai';
+export * from './provider_grok';
 
-// Export other provider implementations as they are added
-// For example:
-// export * from './openai-provider';
+export * from './compatibility/provider-converters';
+export * from './compatibility/provider-compatibility';

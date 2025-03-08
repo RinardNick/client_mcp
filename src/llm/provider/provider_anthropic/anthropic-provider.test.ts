@@ -88,9 +88,9 @@ describe('AnthropicProvider', () => {
 
     // Check for Claude models
     const modelIds = provider.supportedModels.map(model => model.id);
-    expect(modelIds).toContain('claude-3-opus-20240229');
-    expect(modelIds).toContain('claude-3-sonnet-20240229');
-    expect(modelIds).toContain('claude-3-haiku-20240307');
+    expect(modelIds).toContain('claude-3-5-sonnet-20241022');
+    expect(modelIds).toContain('claude-3-7-sonnet-20250222');
+    expect(modelIds).toContain('claude-3-5-haiku-20241022');
   });
 
   it('should format tools correctly for Anthropic API', () => {

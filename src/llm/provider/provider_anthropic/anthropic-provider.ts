@@ -26,7 +26,7 @@ export class AnthropicProvider implements LLMProviderInterface {
    */
   supportedModels: ModelCapability[] = [
     {
-      id: 'claude-3-opus-20240229',
+      id: 'claude-3-5-sonnet-20241022',
       contextWindow: 200000,
       supportsFunctions: true,
       supportsImages: true,
@@ -34,15 +34,15 @@ export class AnthropicProvider implements LLMProviderInterface {
       outputCostPer1K: 0.075,
     },
     {
-      id: 'claude-3-sonnet-20240229',
-      contextWindow: 180000,
+      id: 'claude-3-7-sonnet-20250222',
+      contextWindow: 200000,
       supportsFunctions: true,
       supportsImages: true,
       inputCostPer1K: 0.003,
       outputCostPer1K: 0.015,
     },
     {
-      id: 'claude-3-haiku-20240307',
+      id: 'claude-3-5-haiku-20241022',
       contextWindow: 150000,
       supportsFunctions: true,
       supportsImages: true,

@@ -452,8 +452,11 @@ describe('Adaptive Context Strategy', () => {
 
       // Assert
       expect(performanceData).to.not.be.undefined;
-      expect(performanceData.tokenReductionRate).to.be.approximately(0.3, 0.01); // 30% reduction
-      expect(performanceData.invocations).to.equal(1);
+      expect(performanceData!.tokenReductionRate).to.be.approximately(
+        0.3,
+        0.01
+      );
+      expect(performanceData!.invocations).to.equal(1);
     });
 
     it('should aggregate performance across multiple invocations', () => {
@@ -488,8 +491,11 @@ describe('Adaptive Context Strategy', () => {
 
       // Assert
       expect(performanceData).to.not.be.undefined;
-      expect(performanceData.tokenReductionRate).to.be.approximately(0.3, 0.05); // ~30% reduction
-      expect(performanceData.invocations).to.equal(3);
+      expect(performanceData!.tokenReductionRate).to.be.approximately(
+        0.3,
+        0.05
+      ); // ~30% reduction
+      expect(performanceData!.invocations).to.equal(3);
     });
   });
 
